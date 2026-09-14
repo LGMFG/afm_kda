@@ -22,8 +22,8 @@ from huggingface_hub.dataclasses import strict
 
 from transformers.utils import auto_docstring
 
-from ...configuration_utils import PreTrainedConfig
-from ...modeling_rope_utils import RopeParameters
+from transformers.configuration_utils import PreTrainedConfig
+from transformers.modeling_rope_utils import RopeParameters
 
 
 @auto_docstring(checkpoint="arcee-ai/AFM-4.5B")
