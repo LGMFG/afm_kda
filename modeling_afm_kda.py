@@ -185,6 +185,7 @@ class AFMKDAForCausalLM(ArceeForCausalLM):
         self.model = AFMKDAModel(config)
         self.post_init()
 
+
 @torch.no_grad()
 def init_new_parameters(model, missing_keys):
     """Initialise exactly the parameters that were NOT in the checkpoint.
@@ -220,6 +221,62 @@ def init_new_parameters(model, missing_keys):
             nn.init.zeros_(p)
         else:                            # 1-D norm weights (o_norm)
             nn.init.ones_(p)
+
+
+@torch.no_grad()
+def transfer_attention_into_kda(student, teacher, verbose=True):
+    """Copy the teacher's attention projections into the KDA layers.
+
+    Two problems to solve:
+
+    1. NAMES.  Our wrapper nests KDA as `self_attn.attn.*`, so the teacher's
+       `self_attn.q_proj` matches nothing in a KDA layer -- not even the
+       same-shaped q_proj and o_proj.  from_pretrained reports them as
+       UNEXPECTED / MISSING respectively.
+
+    2. SHAPES.  The teacher uses grouped-query attention: k_proj and v_proj
+       output only num_key_value_heads * head_dim = 4 * 128 = 512, and those
+       4 heads are shared across 20 query heads.  KDA has no sharing, so each
+       KV head block must be repeated n_rep = 5 times.
+
+       The repeat must match how attention itself expands them.  transformers'
+       repeat_kv does `.expand(b, n_kv, n_rep, ...).reshape(b, n_kv*n_rep, ...)`,
+       i.e. GROUP-MAJOR: kv head 0 repeated 5x, then kv head 1, and so on, so
+       query head h uses kv head h // 5.  repeat_interleave on the head axis
+       reproduces exactly that ordering.
+    """
+    cfg = student.config
+    n_rep = cfg.num_attention_heads // cfg.num_key_value_heads      # 5
+    hd = cfg.head_dim                                               # 128
+    tsd = teacher.state_dict()
+    moved = []
+
+    for idx in cfg.kda_layers:
+        src = f"model.layers.{idx}.self_attn"
+        dst = student.model.layers[idx].self_attn.attn               # the KDA module
+
+        # Same shape (2560 x 2560) -- a plain copy.
+        for proj in ("q_proj", "o_proj"):
+            w = tsd[f"{src}.{proj}.weight"]
+            tgt = getattr(dst, proj).weight
+            assert w.shape == tgt.shape, f"{proj}: {tuple(w.shape)} vs {tuple(tgt.shape)}"
+            tgt.copy_(w.to(tgt.dtype, copy=True))
+            moved.append(f"{src}.{proj}")
+
+        # Narrow (512 x 2560) -> full width (2560 x 2560) via a 5x head repeat.
+        for proj in ("k_proj", "v_proj"):
+            w = tsd[f"{src}.{proj}.weight"]                          # [512, 2560]
+            w = w.view(cfg.num_key_value_heads, hd, -1)              # [4, 128, 2560]
+            w = w.repeat_interleave(n_rep, dim=0)                    # [20, 128, 2560]
+            w = w.reshape(cfg.num_attention_heads * hd, -1)          # [2560, 2560]
+            tgt = getattr(dst, proj).weight
+            assert w.shape == tgt.shape, f"{proj}: {tuple(w.shape)} vs {tuple(tgt.shape)}"
+            tgt.copy_(w.to(tgt.dtype, copy=True))
+            moved.append(f"{src}.{proj} (repeat {n_rep}x)")
+
+    if verbose:
+        print(f"transferred {len(moved)} tensors into {len(cfg.kda_layers)} KDA layers")
+    return moved
 
 
 __all__ = ["AFMKDAConfig", "AFMKDAForCausalLM", "AFMKDAModel"]
