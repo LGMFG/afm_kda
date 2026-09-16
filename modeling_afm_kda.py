@@ -4,6 +4,12 @@ from torch import nn
 import math
 
 from .configuration_afm_kda import AFMKDAConfig
+# HF's remote-code loader copies only ONE level of relative imports.  modeling_arcee
+# imports .configuration_arcee, and that second level is never copied -- the reload
+# dies with FileNotFoundError on configuration_arcee.py.  Importing it here makes it
+# a FIRST-level dependency of this file, which does get copied.
+from .configuration_arcee import ArceeConfig  # noqa: F401
+
 from .modeling_arcee import (
     ALL_ATTENTION_FUNCTIONS,
     ArceeAttention,

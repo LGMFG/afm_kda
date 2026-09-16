@@ -49,9 +49,13 @@ class AFMKDAConfig(ArceeConfig):
             self.kda_layers = []
         super().__post_init__(**kwargs)
         # config.json says "arcee"; from_pretrained sets that as an instance
-        # attribute and shadows ours.  Ours must win, or a saved student would
-        # be reloaded as a plain Arcee model with every KDA layer ignored.
+        # attribute and shadows ours.  Ours must win.
         self.model_type = type(self).model_type
+        # auto_map as a CLASS attribute is never serialised: to_dict() copies
+        # self.__dict__, which holds instance attributes only.  Promote it, or
+        # the saved config.json has no pointer to our .py files and reloading
+        # fails with "Transformers does not recognize this architecture".
+        self.auto_map = dict(type(self).auto_map)
 
     def is_kda_layer(self, layer_idx: int) -> bool:
         """0-based.  The reference does `(layer_idx + 1) in kda_layers`; we don't."""
