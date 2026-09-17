@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH -A EUHPC_D34_049
-#SBATCH -J a7
+#SBATCH -J a7b
 #SBATCH -p boost_usr_prod
 #SBATCH --qos=boost_qos_dbg
 #SBATCH --nodes=1
@@ -23,4 +23,4 @@ export OMP_NUM_THREADS=8
 export TOKENIZERS_PARALLELISM=false
 
 cd $WORK_LUKAS
-python afm_kda/test_a7.py
+python afm_kda/test_a7b.py

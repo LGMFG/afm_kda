@@ -130,7 +130,13 @@ class AFMKDALinearAttention(nn.Module):
         # whatever create_causal_mask produced: None or a 2-D mask under
         # flash_attention_2, a 4-D causal mask under sdpa/eager.  Drop anything
         # that is not 2-D rather than tripping the assert.
-        if attention_mask is not None and attention_mask.dim() != 2:
+
+        # We prefer the explicit value and stop handing fla a mask it would re-derive from
+        # so we check for cu_seqlens first.  If it is present, we are in DistillKit's packed format
+        cu_seqlens = kwargs.get("cu_seqlens")
+        if cu_seqlens is not None:
+            attention_mask = None      # we already know the boundaries
+        elif attention_mask is not None and attention_mask.dim() != 2:
             attention_mask = None
 
         out, _, _ = self.attn(
@@ -180,6 +186,27 @@ class AFMKDAModel(ArceeModel):
         )
         self.post_init()
 
+    # Add forward() here to capture the segment ids that DistillKit's packer writes
+    # into attention_mask.  create_causal_mask turns those into a 4-D causal
+    # mask, which the KDA adapter has to drop, so the boundaries never reach the
+    # recurrent layers.  Capture them here, while the raw mask is still intact, and
+    # pass a real cu_seqlens down.
+    def forward(self, input_ids=None, attention_mask=None, **kwargs):
+        # DistillKit's packer writes 1-based SEGMENT IDS into attention_mask
+        # ([1,1,1,2,2,...] -- see pack_logits.py).  create_causal_mask turns
+        # that into a 4-D causal mask the KDA adapter has to drop, so the
+        # boundaries never reach the recurrent layers.  Capture them here,
+        # while the raw mask is still intact, and pass a real cu_seqlens down.
+        if (
+            self.config.kda_layers
+            and attention_mask is not None
+            and attention_mask.dim() == 2
+            and attention_mask.shape[0] == 1      # per_device_train_batch_size: 1
+            and int(attention_mask.max()) > 1     # segment ids, not a 0/1 mask
+        ):
+            kwargs["cu_seqlens"] = build_cu_seqlens(attention_mask)
+        return super().forward(input_ids=input_ids, attention_mask=attention_mask, **kwargs)
+
 
 class AFMKDAForCausalLM(ArceeForCausalLM):
     config_class = AFMKDAConfig
@@ -190,6 +217,22 @@ class AFMKDAForCausalLM(ArceeForCausalLM):
         super().__init__(config)
         self.model = AFMKDAModel(config)
         self.post_init()
+
+
+# helper for KDA's cu_seqlens argument, which is not part of the HF contract and
+# must be built from the segment_mask that create_causal_mask produces.
+def build_cu_seqlens(segment_mask: torch.Tensor) -> torch.Tensor:
+    """[1, T] mask of 1-based segment ids ([1,1,1,2,2,...]) -> int32 cu_seqlens.
+
+    Mirrors functionary's get_max_seqlen_in_batch: count the tokens carrying
+    each id, then take the cumulative sum with a leading 0.
+    """
+    row = segment_mask[0]
+    lens = [n for i in range(1, int(row.max()) + 1)
+            if (n := int((row == i).sum())) > 0]
+    cu = torch.zeros(len(lens) + 1, dtype=torch.int32, device=segment_mask.device)
+    cu[1:] = torch.tensor(lens, dtype=torch.int32, device=segment_mask.device).cumsum(0)
+    return cu
 
 
 @torch.no_grad()
