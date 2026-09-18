@@ -57,6 +57,8 @@ class AFMKDAAttention(ArceeAttention):
         past_key_values=None,
         **kwargs,
     ):
+        # fla's spelling would reach the flash interface as an unknown argument.
+        kwargs.pop("cu_seqlens", None)
         # Body copied from ArceeAttention.forward.  Only the two marked lines differ.
         input_shape = hidden_states.shape[:-1]
         hidden_shape = (*input_shape, -1, self.head_dim)
@@ -186,27 +188,25 @@ class AFMKDAModel(ArceeModel):
         )
         self.post_init()
 
-    # Add forward() here to capture the segment ids that DistillKit's packer writes
-    # into attention_mask.  create_causal_mask turns those into a 4-D causal
-    # mask, which the KDA adapter has to drop, so the boundaries never reach the
-    # recurrent layers.  Capture them here, while the raw mask is still intact, and
-    # pass a real cu_seqlens down.
     def forward(self, input_ids=None, attention_mask=None, **kwargs):
         # DistillKit's packer writes 1-based SEGMENT IDS into attention_mask
         # ([1,1,1,2,2,...] -- see pack_logits.py).  create_causal_mask turns
-        # that into a 4-D causal mask the KDA adapter has to drop, so the
-        # boundaries never reach the recurrent layers.  Capture them here,
-        # while the raw mask is still intact, and pass a real cu_seqlens down.
-        if (
-            self.config.kda_layers
-            and attention_mask is not None
-            and attention_mask.dim() == 2
-            and attention_mask.shape[0] == 1      # per_device_train_batch_size: 1
-            and int(attention_mask.max()) > 1     # segment ids, not a 0/1 mask
-        ):
-            kwargs["cu_seqlens"] = build_cu_seqlens(attention_mask)
+        # that into a form neither layer type can use, so capture the
+        # boundaries here, while the raw mask is intact, and pass them down
+        # under BOTH spellings:
+        #   cu_seqlens                      -> the 27 KDA layers        (A7b)
+        #   cu_seq_lens_q/k, max_length_q/k -> the  9 attention layers  (A7c)
+        # Both ride **kwargs, which ArceeModel.forward, ArceeDecoderLayer and
+        # GradientCheckpointingLayer all forward unchanged.
+        if is_segment_mask(attention_mask):
+            cu = build_cu_seqlens(attention_mask)
+            max_len = int((cu[1:] - cu[:-1]).max())
+            kwargs["cu_seqlens"] = cu                # fla's spelling
+            kwargs["cu_seq_lens_q"] = cu             # transformers' spelling
+            kwargs["cu_seq_lens_k"] = cu
+            kwargs["max_length_q"] = max_len
+            kwargs["max_length_k"] = max_len
         return super().forward(input_ids=input_ids, attention_mask=attention_mask, **kwargs)
-
 
 class AFMKDAForCausalLM(ArceeForCausalLM):
     config_class = AFMKDAConfig
@@ -233,6 +233,20 @@ def build_cu_seqlens(segment_mask: torch.Tensor) -> torch.Tensor:
     cu = torch.zeros(len(lens) + 1, dtype=torch.int32, device=segment_mask.device)
     cu[1:] = torch.tensor(lens, dtype=torch.int32, device=segment_mask.device).cumsum(0)
     return cu
+
+# Check if the attention mask is a segment mask.
+def is_segment_mask(attention_mask) -> bool:
+    """True when the packer wrote 1-based segment ids into attention_mask.
+
+    An ordinary 0/1 padding mask has max() == 1 and is left alone, which is
+    why A3 stays bit-identical.
+    """
+    return (
+        attention_mask is not None
+        and attention_mask.dim() == 2
+        and attention_mask.shape[0] == 1      # per_device_train_batch_size: 1
+        and int(attention_mask.max()) > 1
+    )
 
 
 @torch.no_grad()

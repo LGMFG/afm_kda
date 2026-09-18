@@ -22,5 +22,7 @@ export TORCH_EXTENSIONS_DIR=/tmp/torch_ext_${SLURM_JOB_ID}
 export OMP_NUM_THREADS=8
 export TOKENIZERS_PARALLELISM=false
 
+VARIANT=hybrid31
+
 cd $WORK_LUKAS
-python afm_kda/build_student.py --variant flp
+python afm_kda/build_student.py --variant $VARIANT --force
