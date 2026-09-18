@@ -25,4 +25,4 @@ export TOKENIZERS_PARALLELISM=false
 VARIANT=hybrid31
 
 cd $WORK_LUKAS
-python afm_kda/build_student.py --variant $VARIANT --force
+python afm_kda/build_student.py --variant $VARIANT --no-transfer
