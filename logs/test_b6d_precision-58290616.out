@@ -1,0 +1,42 @@
+128 prompt + 32 forced tokens of real text
+
+=== STUDENT bf16  (kernels differ: chunk vs fused_recurrent)
+  STUDENT bf16  (kernels differ: chunk vs fused_recurrent)
+    worst |Δlogit|      : 1.875e-01   (1.5 ulp at scale 21.6)
+    median per position : 1.250e-01
+    first -> last pos   : 1.250e-01 -> 1.250e-01
+    argmax agreement    : 31/32
+
+=== STUDENT fp32  <- the decisive one
+  STUDENT fp32  <- the decisive one
+    worst |Δlogit|      : 8.021e-03   (0.1 ulp at scale 21.6)
+    median per position : 4.251e-03
+    first -> last pos   : 7.863e-04 -> 7.191e-03
+    argmax agreement    : 32/32
+
+=== TEACHER bf16  (control: all attention, transformers' own cache)
+  TEACHER bf16  (control: all attention, transformers' own cache)
+    worst |Δlogit|      : 1.875e-01   (1.5 ulp at scale 21.8)
+    median per position : 1.250e-01
+    first -> last pos   : 1.748e-01 -> 1.328e-01
+    argmax agreement    : 31/32
+
+========================================================================
+VERDICT
+
+Look at the fp32 row.
+
+  worst |Δlogit| ~1e-5 or below
+      -> the bridge is LOGICALLY CORRECT.  Everything seen in bf16 is the
+         difference between chunk_kda and fused_recurrent_kda, which fla
+         switches between by sequence length on purpose.  Track B passes;
+         record the bf16 figure as a kernel property, not an error.
+
+  worst |Δlogit| still ~0.1 or larger
+      -> a real bug that rounding was hiding.  Suspect the conv_state or the
+         offset passed to update_layer_cache, and do NOT proceed to B7.
+
+The teacher row calibrates: if the unmodified teacher also disagrees with
+itself by a couple of ulp in bf16, that magnitude is normal for this model
+and this dtype and says nothing about KDA.
+

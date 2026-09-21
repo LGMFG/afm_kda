@@ -1,0 +1,39 @@
+AFMKDAForCausalLM | _is_stateful: True | 27 KDA layers
+3 sequences | prompt 300 | 128 forced/generated tokens
+
+--- sequence 0: '<|begin_of_text|>Contents - Previous - Next\nThis is the old United Nations University website. Vis
+  TEST 1 teacher-forced   worst |Δlogit| over 128 positions: 2.188e-01
+           first position 1.250e-01 -> last 1.250e-01   (error must NOT grow)
+           logit scale 22.9, one bf16 ulp = 0.125   => PASS
+           fla state 35.33 -> 35.33 MB (expect 35.33, CONSTANT) | attn KV 7.51 MB | get_seq_length 427
+  TEST 2 free greedy      A==B True   A==C True
+
+--- sequence 1: ' when there is a sense of strong local autonomy, and when decision-making is based on enlightened a
+  TEST 1 teacher-forced   worst |Δlogit| over 128 positions: 3.438e-01
+           first position 1.250e-01 -> last 1.250e-01   (error must NOT grow)
+           logit scale 27.0, one bf16 ulp = 0.125   => *** FAIL ***
+           fla state 35.33 -> 35.33 MB (expect 35.33, CONSTANT) | attn KV 7.51 MB | get_seq_length 427
+  TEST 2 free greedy      A==B False   A==C False
+           diverged at token 19: top-2 logit gap there was 6.250e-02 vs one ulp 0.125
+           -> a NEAR-TIE: expected, not a bug
+
+--- sequence 2: ' pollution problems created by these corporations were revealed and monetary compensation had to be
+  TEST 1 teacher-forced   worst |Δlogit| over 128 positions: 3.125e-01
+           first position 1.953e-01 -> last 1.094e-01   (error must NOT grow)
+           logit scale 24.6, one bf16 ulp = 0.125   => *** FAIL ***
+           fla state 35.33 -> 35.33 MB (expect 35.33, CONSTANT) | attn KV 7.51 MB | get_seq_length 427
+  TEST 2 free greedy      A==B False   A==C False
+           diverged at token 18: top-2 logit gap there was 1.250e-01 vs one ulp 0.125
+           -> a NEAR-TIE: expected, not a bug
+
+========================================================================
+B6 VERDICT (teacher-forced): *** FAIL ***
+
+TEST 1 is the verdict.  It drives both paths along identical tokens, so any
+difference is pure arithmetic and the answer should be within a bf16 ulp.
+
+TEST 2 is informational.  Greedy decoding amplifies a sub-ulp difference into
+a completely different continuation the moment two candidates are tied, so a
+divergence there with a tiny top-2 gap is the expected behaviour of a chaotic
+map, not evidence of a broken cache.
+

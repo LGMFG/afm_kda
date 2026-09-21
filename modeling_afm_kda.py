@@ -25,6 +25,64 @@ try:
 except ImportError as e:
     raise ImportError("pip install -U 'flash-linear-attention[cuda]'") from e
 
+# --- B2': the two-cache bridge -------------------------------------------
+from fla.models.utils import Cache as FlaCache
+from transformers.cache_utils import DynamicCache
+
+
+class AFMKDACache(DynamicCache):
+    """A transformers cache for the attention layers, carrying an fla cache for KDA.
+
+    B0 established that handing fla's Cache to the inherited ArceeModel.forward
+    raises inside transformers' own wrapper on transformers 5.x.  So we never do:
+    transformers only ever sees a DynamicCache subclass, and the recurrent state
+    rides along as an attribute.
+
+    Two problems, one object:
+
+    1. LENGTH.  DynamicCache.get_seq_length() reports layer 0, which in a hybrid
+       is a KDA layer that stores nothing -- so it returns 0 forever and
+       generate() never trims input_ids.  Measured at B0: get_seq_length() -> 0
+       beside __len__() -> 36.  Read an ATTENTION layer instead.
+    2. TRANSPORT.  generate() hands the SAME cache object back every step, so an
+       attribute on it is a correctly-scoped home for the recurrent state.  No
+       kwargs plumbing, no globals, no lifetime questions.
+
+    attn_layer_idx=None means there are no attention layers (the kda_only
+    variant), in which case nothing in the DynamicCache is ever written and the
+    length has to be counted here instead.
+    """
+
+    def __init__(self, *args, attn_layer_idx=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.attn_layer_idx = attn_layer_idx
+        self.fla = FlaCache()
+        self._counted = 0          # only used when attn_layer_idx is None
+
+    def get_seq_length(self, layer_idx: int = 0) -> int:
+        # The caller's layer_idx is ignored on purpose: only an attention layer
+        # knows how long the sequence is.
+        if self.attn_layer_idx is None:
+            return self._counted
+        return super().get_seq_length(self.attn_layer_idx)
+    
+    def get_mask_sizes(self, query_length: int, layer_idx: int = 0) -> tuple[int, int]:
+        # DynamicCache answers from self.layers[layer_idx].  Its hybrid rescue
+        # (skip to the first attention layer) fires only when the linear layers
+        # are registered as non-CacheLayerMixin entries -- transformers 5.8.1
+        # maps "linear_attention" to LinearAttentionLayer for exactly that.
+        # Ours are not registered at all, so lazy replication fills 0..N with
+        # EMPTY DynamicLayers and layer 0 reports kv_length = query_length,
+        # which broadcasts to stride 0 and makes SDPA reject the mask.
+        if self.attn_layer_idx is None:
+            return query_length, 0
+        return super().get_mask_sizes(query_length, self.attn_layer_idx)
+    
+    def note_tokens(self, n: int) -> None:
+        """Called once per forward by AFMKDAModel when there is no attention layer."""
+        if self.attn_layer_idx is None:
+            self._counted += int(n)
+
 
 class AFMKDAAttention(ArceeAttention):
     """AFM attention with two optional modifications, both OFF by default.
@@ -75,6 +133,10 @@ class AFMKDAAttention(ArceeAttention):
             key_states, value_states = past_key_values.update(
                 key_states, value_states, self.layer_idx
             )
+
+        # Torch's SDPA is refusing a 4-D causal mask whose last dimension isn't contiguous
+        if attention_mask is not None:
+            attention_mask = attention_mask.contiguous()
 
         attention_interface = ALL_ATTENTION_FUNCTIONS.get_interface(
             self.config._attn_implementation, eager_attention_forward
@@ -137,16 +199,31 @@ class AFMKDALinearAttention(nn.Module):
         # so we check for cu_seqlens first.  If it is present, we are in DistillKit's packed format
         cu_seqlens = kwargs.get("cu_seqlens")
         if cu_seqlens is not None:
-            attention_mask = None      # we already know the boundaries
-        elif attention_mask is not None and attention_mask.dim() != 2:
             attention_mask = None
+        elif attention_mask is None or attention_mask.dim() != 2:
+            # super().forward() already turned the 2-D padding mask into a 4-D
+            # causal bias; fla asserts on anything but 2-D and needs the real
+            # padding mask for its unpad/repad path.
+            attention_mask = getattr(self, "_padding_mask_2d", None)
+
+        # ---- B4': take the recurrent cache off the carrier ---------------
+        fla_cache = getattr(past_key_values, "fla", None)
+        want_cache = bool(kwargs.get("use_cache")) and fla_cache is not None
+
+        if (fla_cache is None and past_key_values is not None
+                and past_key_values.get_seq_length() > 0):
+            raise NotImplementedError(
+                "AFMKDALinearAttention was asked to continue from a populated cache "
+                "that carries no fla state. This would silently produce wrong "
+                "output. Use AFMKDACache, or use_cache=False."
+            )
 
         out, _, _ = self.attn(
             hidden_states=hidden_states,
             attention_mask=attention_mask,
-            past_key_values=None,   # fla's Cache is not transformers' Cache
-            use_cache=False,        # training only; generation is separate work
-            cu_seqlens=kwargs.get("cu_seqlens"),
+            past_key_values=fla_cache,
+            use_cache=want_cache,
+            cu_seqlens=cu_seqlens,
         )
         return out, None            # no attention weights exist for a recurrent layer
 
@@ -168,14 +245,11 @@ class AFMKDADecoderLayer(ArceeDecoderLayer):
 
 
 class AFMKDAModel(ArceeModel):
-    config: AFMKDAConfig          # transformers 5.x reads the annotation
-    config_class = AFMKDAConfig   # kept for older call paths; harmless
+    config: AFMKDAConfig
+    config_class = AFMKDAConfig
     _no_split_modules = ["AFMKDADecoderLayer"]
-    # CRITICAL: transformers collects hidden states by hooking the classes named
-    # here (see @capture_outputs on ArceeModel.forward and _can_record_outputs on
-    # ArceePreTrainedModel).  Leave this pointing at ArceeDecoderLayer and
-    # output_hidden_states=True returns nothing -- which would silently zero out
-    # DistillKit's hs_cosine loss with no error anywhere.
+    _is_stateful = True                       # B3': generate() must not re-run
+                                              #      the prefix itself
     _can_record_outputs = {
         "hidden_states": AFMKDADecoderLayer,
         "attentions": AFMKDAAttention,
@@ -188,30 +262,63 @@ class AFMKDAModel(ArceeModel):
         )
         self.post_init()
 
+    def _first_attn_layer_idx(self):
+        """Index of the first softmax-attention layer, or None for kda_only.
+
+        Derived from the MODULES, not from a config list, so hybrid31 (first at
+        3) and flp (first at 0) both work with no special-casing, and a renamed
+        config field cannot silently return the wrong answer.
+        """
+        for i, layer in enumerate(self.layers):
+            if isinstance(layer.self_attn, AFMKDAAttention):
+                return i
+        return None
+
     def forward(self, input_ids=None, attention_mask=None, **kwargs):
-        # DistillKit's packer writes 1-based SEGMENT IDS into attention_mask
-        # ([1,1,1,2,2,...] -- see pack_logits.py).  create_causal_mask turns
-        # that into a form neither layer type can use, so capture the
-        # boundaries here, while the raw mask is intact, and pass them down
-        # under BOTH spellings:
-        #   cu_seqlens                      -> the 27 KDA layers        (A7b)
-        #   cu_seq_lens_q/k, max_length_q/k -> the  9 attention layers  (A7c)
-        # Both ride **kwargs, which ArceeModel.forward, ArceeDecoderLayer and
-        # GradientCheckpointingLayer all forward unchanged.
+        # ---- existing segment-mask block, unchanged ----
         if is_segment_mask(attention_mask):
             cu = build_cu_seqlens(attention_mask)
             max_len = int((cu[1:] - cu[:-1]).max())
-            kwargs["cu_seqlens"] = cu                # fla's spelling
-            kwargs["cu_seq_lens_q"] = cu             # transformers' spelling
+            kwargs["cu_seqlens"] = cu
+            kwargs["cu_seq_lens_q"] = cu
             kwargs["cu_seq_lens_k"] = cu
             kwargs["max_length_q"] = max_len
             kwargs["max_length_k"] = max_len
+
+        # ---- B3': install the carrier cache -----------------------------
+        # Dead during training: gradient checkpointing forces use_cache=False,
+        # and this model's config.use_cache is False as well (measured at B0).
+        if kwargs.get("use_cache"):
+            pkv = kwargs.get("past_key_values")
+            if not isinstance(pkv, AFMKDACache):
+                if pkv is None or (isinstance(pkv, DynamicCache)
+                                   and pkv.get_seq_length() == 0):
+                    pkv = AFMKDACache(attn_layer_idx=self._first_attn_layer_idx())
+                    kwargs["past_key_values"] = pkv
+                else:
+                    raise NotImplementedError(
+                        "AFMKDAModel was handed a populated cache it did not create "
+                        f"({type(pkv).__name__}, {pkv.get_seq_length()} tokens). The "
+                        "KDA layers have no state in it, so continuing would silently "
+                        "produce wrong output. Start from an empty cache, or pass "
+                        "use_cache=False."
+                    )
+            if input_ids is not None:
+                pkv.note_tokens(input_ids.shape[1])     # no-op unless kda_only
+
+        raw2d = attention_mask if (attention_mask is not None
+                                   and attention_mask.dim() == 2) else None
+        for layer in self.layers:
+            if type(layer.self_attn).__name__ == "AFMKDALinearAttention":
+                layer.self_attn._padding_mask_2d = raw2d
+
         return super().forward(input_ids=input_ids, attention_mask=attention_mask, **kwargs)
 
 class AFMKDAForCausalLM(ArceeForCausalLM):
     config_class = AFMKDAConfig
     _no_split_modules = ["AFMKDADecoderLayer"]
     _can_record_outputs = AFMKDAModel._can_record_outputs
+    _is_stateful = True
 
     def __init__(self, config: AFMKDAConfig):
         super().__init__(config)
@@ -341,5 +448,9 @@ def transfer_attention_into_kda(student, teacher, verbose=True):
         print(f"transferred {len(moved)} tensors into {len(cfg.kda_layers)} KDA layers")
     return moved
 
+assert "forward" in AFMKDAModel.__dict__, \
+    "AFMKDAModel.forward is not defined at class level -- check indentation"
+assert issubclass(AFMKDACache, DynamicCache), \
+    "AFMKDACache must be a DynamicCache: transformers must never see fla's Cache"
 
 __all__ = ["AFMKDAConfig", "AFMKDAForCausalLM", "AFMKDAModel"]

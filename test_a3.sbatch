@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH -A EUHPC_D34_049
-#SBATCH -J a3_sanity
+#SBATCH -J a3_sanity_b4
 #SBATCH -p boost_usr_prod
 #SBATCH --qos=boost_qos_dbg
 #SBATCH --nodes=1

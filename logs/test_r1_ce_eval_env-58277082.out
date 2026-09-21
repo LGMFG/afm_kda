@@ -1,0 +1,15 @@
+transformers 5.9.0 | torch 2.12.0+cu126
+fla 0.5.2
+evaluating on 64 x 2048 = 131,072 held-out tokens
+
+model                           CE(first 8)    CE(all)   +/- se       ppl  vs teacher
+--------------------------------------------------------------------------------------
+teacher AFM-4.5B-Base                2.3030     2.2963   0.0400       9.9     +0.0000
+hybrid31, untrained (A5b)            7.9274     7.9398   0.0195    2806.8     +5.6435
+hybrid31, R1 300M tokens             2.4383     2.4559   0.0392      11.7     +0.1595
+
+Expect: the teacher near 2.3030 and the untrained hybrid near 7.9412 in the
+'CE(first 8)' column -- those two are A5b's published numbers and they are
+the check that this script is on the same axis.  If they do not reproduce,
+the R1 row is not comparable to anything and nothing else here is usable.
+

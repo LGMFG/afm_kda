@@ -1,0 +1,4 @@
+batch 4 | lengths [120, 180, 240, 300] | padded width 300 | 32 forced tokens
+left padding per row: [180, 120, 60, 0]
+
+=== STUDENT hybrid31

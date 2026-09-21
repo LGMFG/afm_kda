@@ -1,0 +1,16 @@
+prompt: 300 real tokens | generating 64
+first 200 chars: '<|begin_of_text|>Contents - Previous - Next\nThis is the old United Nations University website. Visit the new site at http://unu.edu\nBasic human rights\nII. Issues arising out of court struggles\nII 
+
+AFMKDAForCausalLM | _is_stateful: True
+A (no cache)  : [315, 6617, 2065, 11, 279, 11002, 1274, 617, 1027, 62683, 315, 872] ...
+  cache: AFMKDACache | get_seq_length -> 300 (expected 300)
+B (our cache) : [315, 6617, 2065, 11, 279, 11002, 1274, 617, 1027, 62683, 315, 872] ...
+C (generate)  : [315, 6617, 2065, 11, 279, 11002, 1274, 617, 1027, 62683, 315, 872] ...
+
+--- verdict ---
+A == B (token for token): True
+A == C (token for token): True
+worst per-step logit diff A vs B: 1.562e-01   (bf16 noise is ~1e-2)
+
+text A: ' of modernization, the Japanese people have been deprived of their basic human rights. The Japanese people have been deprived of their basic human rights in the name of "national security" and "national interest." The Japanese people have been deprived of their basic human rights in the name of "na
+text B: ' of modernization, the Japanese people have been deprived of their basic human rights. The Japanese people have been deprived of their basic human rights in the name of "national security" and "national interest." The Japanese people have been deprived of their basic human rights in the name of "na

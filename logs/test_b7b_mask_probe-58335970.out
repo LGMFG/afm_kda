@@ -1,0 +1,62 @@
+
+========================================================================
+TEACHER   (AFM-4.5B-Base)
+========================================================================
+layer 0 is: ArceeAttention | first attention layer at index: 0
+
+--- prompt forward (q_len=300)
+    [TEACHER] q_len=(4, 300, 2560) mask=(4, 1, 300, 300) stride=(90000, 90000, 300, 1) contiguous=True dtype=torch.bool
+    cache: DynamicCache | get_seq_length() -> 300 (expect 300)
+
+--- per-layer answers  (kv_length, kv_offset) from get_mask_sizes
+    layer 0 (        ArceeAttention): get_mask_sizes -> (tensor([600], device='cuda:0'), 0)   get_seq_length(i) -> 300
+    layer 1 (        ArceeAttention): get_mask_sizes -> (tensor([600], device='cuda:0'), 0)   get_seq_length(i) -> 300
+    layer 2 (        ArceeAttention): get_mask_sizes -> (tensor([600], device='cuda:0'), 0)   get_seq_length(i) -> 300
+    layer 3 (        ArceeAttention): get_mask_sizes -> (tensor([600], device='cuda:0'), 0)   get_seq_length(i) -> 300
+    layer 4 (        ArceeAttention): get_mask_sizes -> (tensor([600], device='cuda:0'), 0)   get_seq_length(i) -> 300
+
+--- one decode step (q_len=1)  <- this is where B7 died
+    [TEACHER] q_len=(4, 1, 2560) mask=(4, 1, 1, 301) stride=(301, 301, 301, 1) contiguous=True dtype=torch.bool
+    SURVIVED
+
+========================================================================
+STUDENT   (r1_stage1_hybrid31)
+========================================================================
+layer 0 is: AFMKDALinearAttention | first attention layer at index: 3
+
+--- prompt forward (q_len=300)
+    [STUDENT] q_len=(4, 300, 2560) mask=(4, 1, 300, 300) stride=(90000, 90000, 300, 1) contiguous=True dtype=torch.bool
+    cache: AFMKDACache | get_seq_length() -> 300 (expect 300)
+
+--- per-layer answers  (kv_length, kv_offset) from get_mask_sizes
+    layer 0 ( AFMKDALinearAttention): get_mask_sizes -> (tensor([600], device='cuda:0'), 0)   get_seq_length(i) -> 0
+    layer 1 ( AFMKDALinearAttention): get_mask_sizes -> (tensor([600], device='cuda:0'), 0)   get_seq_length(i) -> 0
+    layer 2 ( AFMKDALinearAttention): get_mask_sizes -> (tensor([600], device='cuda:0'), 0)   get_seq_length(i) -> 0
+    layer 3 (       AFMKDAAttention): get_mask_sizes -> (tensor([600], device='cuda:0'), 0)   get_seq_length(i) -> 300
+    layer 4 ( AFMKDALinearAttention): get_mask_sizes -> (tensor([600], device='cuda:0'), 0)   get_seq_length(i) -> 0
+
+--- one decode step (q_len=1)  <- this is where B7 died
+    [STUDENT] q_len=(4, 1, 2560) mask=(4, 1, 1, 301) stride=(301, 301, 301, 1) contiguous=True dtype=torch.bool
+    SURVIVED
+
+========================================================================
+What to look for
+========================================================================
+
+Compare the two 'per-layer answers' blocks.
+
+  STUDENT layer 0 reports a kv_length of ~0/1 while the teacher's layer 0
+  reports ~300
+      -> create_causal_mask is sizing the mask from a KDA layer that stores
+         nothing.  Fix: override get_mask_sizes on AFMKDACache the same way
+         get_seq_length is already overridden -- answer for attn_layer_idx.
+
+  the mask reaching the attention layer is non-contiguous with a stride whose
+  last entry is not 1
+      -> that is the tensor SDPA rejects; the shape tells you which dimension
+         was sliced.
+
+  both models answer identically and the student still raises
+      -> the difference is in our COPY of modeling_arcee.py versus the
+         installed one.  diff them.
+

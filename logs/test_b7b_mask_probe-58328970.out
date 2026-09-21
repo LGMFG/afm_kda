@@ -1,0 +1,123 @@
+
+========================================================================
+TEACHER   (AFM-4.5B-Base)
+========================================================================
+layer 0 is: ArceeAttention | first attention layer at index: 0
+
+--- prompt forward (q_len=300)
+    [TEACHER] q_len=(4, 300, 2560) mask=(4, 1, 300, 300) stride=(90000, 90000, 300, 1) contiguous=True dtype=torch.bool
+    cache: DynamicCache | get_seq_length() -> 300 (expect 300)
+
+--- per-layer answers  (kv_length, kv_offset) from get_mask_sizes
+    layer 0 (        ArceeAttention): get_mask_sizes -> (tensor([600], device='cuda:0'), 0)   get_seq_length(i) -> 300
+    layer 1 (        ArceeAttention): get_mask_sizes -> (tensor([600], device='cuda:0'), 0)   get_seq_length(i) -> 300
+    layer 2 (        ArceeAttention): get_mask_sizes -> (tensor([600], device='cuda:0'), 0)   get_seq_length(i) -> 300
+    layer 3 (        ArceeAttention): get_mask_sizes -> (tensor([600], device='cuda:0'), 0)   get_seq_length(i) -> 300
+    layer 4 (        ArceeAttention): get_mask_sizes -> (tensor([600], device='cuda:0'), 0)   get_seq_length(i) -> 300
+
+--- one decode step (q_len=1)  <- this is where B7 died
+    [TEACHER] q_len=(4, 1, 2560) mask=(4, 1, 1, 301) stride=(301, 301, 301, 1) contiguous=True dtype=torch.bool
+    SURVIVED
+
+========================================================================
+STUDENT   (r1_stage1_hybrid31)
+========================================================================
+layer 0 is: AFMKDALinearAttention | first attention layer at index: 3
+
+--- prompt forward (q_len=300)
+    [STUDENT] q_len=(4, 300, 2560) mask=(4, 1, 300, 300) stride=(90000, 90000, 300, 1) contiguous=True dtype=torch.bool
+    cache: AFMKDACache | get_seq_length() -> 300 (expect 300)
+
+--- per-layer answers  (kv_length, kv_offset) from get_mask_sizes
+    layer 0 ( AFMKDALinearAttention): get_mask_sizes -> (tensor([300], device='cuda:0'), 0)   get_seq_length(i) -> 0
+    layer 1 ( AFMKDALinearAttention): get_mask_sizes -> (tensor([300], device='cuda:0'), 0)   get_seq_length(i) -> 0
+    layer 2 ( AFMKDALinearAttention): get_mask_sizes -> (tensor([300], device='cuda:0'), 0)   get_seq_length(i) -> 0
+    layer 3 (       AFMKDAAttention): get_mask_sizes -> (tensor([600], device='cuda:0'), 0)   get_seq_length(i) -> 300
+    layer 4 ( AFMKDALinearAttention): get_mask_sizes -> (tensor([300], device='cuda:0'), 0)   get_seq_length(i) -> 0
+
+--- one decode step (q_len=1)  <- this is where B7 died
+    [STUDENT] q_len=(4, 1, 2560) mask=(4, 1, 1, 1) stride=(1, 1, 1, 1) contiguous=True dtype=torch.bool
+    RAISED -- full traceback, no limit:
+Traceback (most recent call last):
+  File "/leonardo_work/EUHPC_D34_049/WORK_LUKAS/afm_kda/test_b7b_mask_probe.py", line 112, in <module>
+    m(input_ids=nxt, attention_mask=step_mask, past_key_values=pkv, use_cache=True)
+  File "/leonardo/home/userexternal/lrosenbe/distill_env_cu126/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1778, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/leonardo/home/userexternal/lrosenbe/distill_env_cu126/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1789, in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/leonardo/home/userexternal/lrosenbe/distill_env_cu126/lib/python3.11/site-packages/transformers/utils/generic.py", line 900, in wrapper
+    output = func(self, *args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/leonardo_work/EUHPC_D34_049/WORK_LUKAS/hf_cache/modules/transformers_modules/r1_stage1_hybrid31/11b51db345575d1a/modeling_arcee.py", line 470, in forward
+    outputs: BaseModelOutputWithPast = self.model(
+                                       ^^^^^^^^^^^
+  File "/leonardo/home/userexternal/lrosenbe/distill_env_cu126/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1778, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/leonardo/home/userexternal/lrosenbe/distill_env_cu126/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1789, in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/leonardo_work/EUHPC_D34_049/WORK_LUKAS/hf_cache/modules/transformers_modules/r1_stage1_hybrid31/11b51db345575d1a/modeling_afm_kda.py", line 299, in forward
+    return super().forward(input_ids=input_ids, attention_mask=attention_mask, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/leonardo/home/userexternal/lrosenbe/distill_env_cu126/lib/python3.11/site-packages/transformers/utils/generic.py", line 976, in wrapper
+    output = func(self, *args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/leonardo/home/userexternal/lrosenbe/distill_env_cu126/lib/python3.11/site-packages/transformers/utils/output_capturing.py", line 248, in wrapper
+    outputs = func(self, *args, **kwargs)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/leonardo_work/EUHPC_D34_049/WORK_LUKAS/hf_cache/modules/transformers_modules/r1_stage1_hybrid31/11b51db345575d1a/modeling_arcee.py", line 407, in forward
+    hidden_states = decoder_layer(
+                    ^^^^^^^^^^^^^^
+  File "/leonardo/home/userexternal/lrosenbe/distill_env_cu126/lib/python3.11/site-packages/transformers/modeling_layers.py", line 93, in __call__
+    return super().__call__(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/leonardo/home/userexternal/lrosenbe/distill_env_cu126/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1778, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/leonardo/home/userexternal/lrosenbe/distill_env_cu126/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1789, in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/leonardo_work/EUHPC_D34_049/WORK_LUKAS/hf_cache/modules/transformers_modules/r1_stage1_hybrid31/11b51db345575d1a/modeling_arcee.py", line 312, in forward
+    hidden_states, _ = self.self_attn(
+                       ^^^^^^^^^^^^^^^
+  File "/leonardo/home/userexternal/lrosenbe/distill_env_cu126/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1778, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/leonardo/home/userexternal/lrosenbe/distill_env_cu126/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1884, in _call_impl
+    return inner()
+           ^^^^^^^
+  File "/leonardo/home/userexternal/lrosenbe/distill_env_cu126/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1832, in inner
+    result = forward_call(*args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/leonardo_work/EUHPC_D34_049/WORK_LUKAS/hf_cache/modules/transformers_modules/r1_stage1_hybrid31/11b51db345575d1a/modeling_afm_kda.py", line 137, in forward
+    attn_output, attn_weights = attention_interface(
+                                ^^^^^^^^^^^^^^^^^^^^
+  File "/leonardo/home/userexternal/lrosenbe/distill_env_cu126/lib/python3.11/site-packages/transformers/integrations/sdpa_attention.py", line 92, in sdpa_attention_forward
+    attn_output = torch.nn.functional.scaled_dot_product_attention(
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+RuntimeError: (*bias): last dimension must be contiguous
+
+========================================================================
+What to look for
+========================================================================
+
+Compare the two 'per-layer answers' blocks.
+
+  STUDENT layer 0 reports a kv_length of ~0/1 while the teacher's layer 0
+  reports ~300
+      -> create_causal_mask is sizing the mask from a KDA layer that stores
+         nothing.  Fix: override get_mask_sizes on AFMKDACache the same way
+         get_seq_length is already overridden -- answer for attn_layer_idx.
+
+  the mask reaching the attention layer is non-contiguous with a stride whose
+  last entry is not 1
+      -> that is the tensor SDPA rejects; the shape tells you which dimension
+         was sliced.
+
+  both models answer identically and the student still raises
+      -> the difference is in our COPY of modeling_arcee.py versus the
+         installed one.  diff them.
+
