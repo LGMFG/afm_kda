@@ -1,98 +1,0 @@
-[transformers] The explicitly set RoPE scaling factor (config.rope_parameters['factor'] = 20.0) does not match the ratio implicitly set by other parameters (implicit factor = post-yarn context length / pre-yarn context length = config.max_position_embeddings / config.rope_parameters['original_max_position_embeddings'] = 16.0). Using the explicit factor (20.0) in YaRN. This may cause unexpected behaviour in model usage, please correct the 'original_max_position_embeddings' fields in the model config.
-Loading weights:   0%|          | 0/624 [00:00<?, ?it/s]Loading weights:   3%|▎         | 19/624 [00:00<00:21, 27.70it/s]Loading weights:   6%|▋         | 39/624 [00:00<00:10, 55.83it/s]Loading weights:   8%|▊         | 51/624 [00:01<00:19, 29.02it/s]Loading weights:  11%|█         | 67/624 [00:01<00:14, 39.50it/s]Loading weights:  12%|█▏        | 75/624 [00:02<00:16, 33.13it/s]Loading weights:  14%|█▍        | 87/624 [00:02<00:16, 32.36it/s]Loading weights:  19%|█▊        | 116/624 [00:02<00:09, 50.87it/s]Loading weights:  21%|██        | 131/624 [00:02<00:08, 61.57it/s]Loading weights:  23%|██▎       | 145/624 [00:03<00:06, 69.28it/s]Loading weights:  29%|██▉       | 181/624 [00:03<00:08, 54.97it/s]Loading weights:  32%|███▏      | 198/624 [00:03<00:06, 66.24it/s]Loading weights:  34%|███▎      | 210/624 [00:04<00:06, 67.22it/s]Loading weights:  35%|███▌      | 220/624 [00:04<00:10, 37.70it/s]Loading weights:  38%|███▊      | 234/624 [00:05<00:13, 28.68it/s]Loading weights:  39%|███▉      | 243/624 [00:05<00:11, 33.19it/s]Loading weights:  40%|████      | 250/624 [00:06<00:17, 21.82it/s]Loading weights:  42%|████▏     | 260/624 [00:06<00:13, 27.60it/s]Loading weights:  45%|████▍     | 279/624 [00:07<00:12, 27.67it/s]Loading weights:  46%|████▋     | 290/624 [00:07<00:10, 33.04it/s]Loading weights:  48%|████▊     | 299/624 [00:08<00:14, 22.75it/s]Loading weights:  52%|█████▏    | 323/624 [00:09<00:11, 26.65it/s]Loading weights:  53%|█████▎    | 333/624 [00:09<00:09, 31.56it/s]Loading weights:  55%|█████▍    | 342/624 [00:09<00:12, 22.69it/s]Loading weights:  58%|█████▊    | 365/624 [00:10<00:10, 25.76it/s]Loading weights:  61%|██████    | 378/624 [00:10<00:07, 32.64it/s]Loading weights:  62%|██████▏   | 385/624 [00:11<00:10, 23.89it/s]Loading weights:  66%|██████▋   | 414/624 [00:11<00:04, 43.64it/s]Loading weights:  68%|██████▊   | 425/624 [00:12<00:06, 32.18it/s]Loading weights:  70%|██████▉   | 434/624 [00:12<00:05, 36.34it/s]Loading weights:  71%|███████   | 442/624 [00:13<00:07, 25.72it/s]Loading weights:  74%|███████▎  | 460/624 [00:13<00:06, 24.22it/s]Loading weights:  76%|███████▋  | 477/624 [00:13<00:04, 34.24it/s]Loading weights:  78%|███████▊  | 489/624 [00:14<00:04, 28.68it/s]Loading weights:  81%|████████  | 505/624 [00:15<00:04, 25.47it/s]Loading weights:  85%|████████▍ | 529/624 [00:16<00:03, 28.28it/s]Loading weights:  88%|████████▊ | 548/624 [00:16<00:01, 38.79it/s]Loading weights:  89%|████████▉ | 557/624 [00:16<00:02, 30.90it/s]Loading weights:  93%|█████████▎| 579/624 [00:17<00:01, 30.84it/s]Loading weights:  95%|█████████▌| 595/624 [00:17<00:00, 31.80it/s]Loading weights: 100%|██████████| 624/624 [00:18<00:00, 34.65it/s]
-Traceback (most recent call last):
-  File "/leonardo_work/EUHPC_D34_049/WORK_LUKAS/afm_kda/test_b0_probe.py", line 154, in try_forward
-    o = model(input_ids=ids, past_key_values=cache, use_cache=True)
-        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/leonardo/home/userexternal/lrosenbe/distill_env_cu126/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1778, in _wrapped_call_impl
-    return self._call_impl(*args, **kwargs)
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/leonardo/home/userexternal/lrosenbe/distill_env_cu126/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1789, in _call_impl
-    return forward_call(*args, **kwargs)
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/leonardo/home/userexternal/lrosenbe/distill_env_cu126/lib/python3.11/site-packages/transformers/utils/generic.py", line 900, in wrapper
-    output = func(self, *args, **kwargs)
-             ^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/leonardo_work/EUHPC_D34_049/WORK_LUKAS/hf_cache/modules/transformers_modules/afm_kda_hybrid31_init/1581f4f08ffba7bc/modeling_arcee.py", line 470, in forward
-    outputs: BaseModelOutputWithPast = self.model(
-                                       ^^^^^^^^^^^
-  File "/leonardo/home/userexternal/lrosenbe/distill_env_cu126/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1778, in _wrapped_call_impl
-    return self._call_impl(*args, **kwargs)
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/leonardo/home/userexternal/lrosenbe/distill_env_cu126/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1789, in _call_impl
-    return forward_call(*args, **kwargs)
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/leonardo_work/EUHPC_D34_049/WORK_LUKAS/hf_cache/modules/transformers_modules/afm_kda_hybrid31_init/1581f4f08ffba7bc/modeling_afm_kda.py", line 229, in forward
-    return super().forward(input_ids=input_ids, attention_mask=attention_mask, **kwargs)
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/leonardo/home/userexternal/lrosenbe/distill_env_cu126/lib/python3.11/site-packages/transformers/utils/generic.py", line 976, in wrapper
-    output = func(self, *args, **kwargs)
-             ^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/leonardo/home/userexternal/lrosenbe/distill_env_cu126/lib/python3.11/site-packages/transformers/utils/output_capturing.py", line 248, in wrapper
-    outputs = func(self, *args, **kwargs)
-              ^^^^^^^^^^^^^^^^^^^^^^^^^^^
-AttributeError: 'int' object has no attribute 'shape'
-Traceback (most recent call last):
-  File "/leonardo_work/EUHPC_D34_049/WORK_LUKAS/afm_kda/test_b0_probe.py", line 154, in try_forward
-    o = model(input_ids=ids, past_key_values=cache, use_cache=True)
-        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/leonardo/home/userexternal/lrosenbe/distill_env_cu126/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1778, in _wrapped_call_impl
-    return self._call_impl(*args, **kwargs)
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/leonardo/home/userexternal/lrosenbe/distill_env_cu126/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1789, in _call_impl
-    return forward_call(*args, **kwargs)
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/leonardo/home/userexternal/lrosenbe/distill_env_cu126/lib/python3.11/site-packages/transformers/utils/generic.py", line 900, in wrapper
-    output = func(self, *args, **kwargs)
-             ^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/leonardo_work/EUHPC_D34_049/WORK_LUKAS/hf_cache/modules/transformers_modules/afm_kda_hybrid31_init/1581f4f08ffba7bc/modeling_arcee.py", line 470, in forward
-    outputs: BaseModelOutputWithPast = self.model(
-                                       ^^^^^^^^^^^
-  File "/leonardo/home/userexternal/lrosenbe/distill_env_cu126/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1778, in _wrapped_call_impl
-    return self._call_impl(*args, **kwargs)
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/leonardo/home/userexternal/lrosenbe/distill_env_cu126/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1789, in _call_impl
-    return forward_call(*args, **kwargs)
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/leonardo_work/EUHPC_D34_049/WORK_LUKAS/hf_cache/modules/transformers_modules/afm_kda_hybrid31_init/1581f4f08ffba7bc/modeling_afm_kda.py", line 229, in forward
-    return super().forward(input_ids=input_ids, attention_mask=attention_mask, **kwargs)
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/leonardo/home/userexternal/lrosenbe/distill_env_cu126/lib/python3.11/site-packages/transformers/utils/generic.py", line 976, in wrapper
-    output = func(self, *args, **kwargs)
-             ^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/leonardo/home/userexternal/lrosenbe/distill_env_cu126/lib/python3.11/site-packages/transformers/utils/output_capturing.py", line 248, in wrapper
-    outputs = func(self, *args, **kwargs)
-              ^^^^^^^^^^^^^^^^^^^^^^^^^^^
-AttributeError: 'int' object has no attribute 'shape'
-Traceback (most recent call last):
-  File "/leonardo_work/EUHPC_D34_049/WORK_LUKAS/afm_kda/test_b0_probe.py", line 154, in try_forward
-    o = model(input_ids=ids, past_key_values=cache, use_cache=True)
-        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/leonardo/home/userexternal/lrosenbe/distill_env_cu126/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1778, in _wrapped_call_impl
-    return self._call_impl(*args, **kwargs)
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/leonardo/home/userexternal/lrosenbe/distill_env_cu126/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1789, in _call_impl
-    return forward_call(*args, **kwargs)
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/leonardo/home/userexternal/lrosenbe/distill_env_cu126/lib/python3.11/site-packages/transformers/utils/generic.py", line 900, in wrapper
-    output = func(self, *args, **kwargs)
-             ^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/leonardo_work/EUHPC_D34_049/WORK_LUKAS/hf_cache/modules/transformers_modules/afm_kda_hybrid31_init/1581f4f08ffba7bc/modeling_arcee.py", line 470, in forward
-    outputs: BaseModelOutputWithPast = self.model(
-                                       ^^^^^^^^^^^
-  File "/leonardo/home/userexternal/lrosenbe/distill_env_cu126/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1778, in _wrapped_call_impl
-    return self._call_impl(*args, **kwargs)
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/leonardo/home/userexternal/lrosenbe/distill_env_cu126/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1789, in _call_impl
-    return forward_call(*args, **kwargs)
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/leonardo_work/EUHPC_D34_049/WORK_LUKAS/hf_cache/modules/transformers_modules/afm_kda_hybrid31_init/1581f4f08ffba7bc/modeling_afm_kda.py", line 229, in forward
-    return super().forward(input_ids=input_ids, attention_mask=attention_mask, **kwargs)
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/leonardo/home/userexternal/lrosenbe/distill_env_cu126/lib/python3.11/site-packages/transformers/utils/generic.py", line 976, in wrapper
-    output = func(self, *args, **kwargs)
-             ^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/leonardo/home/userexternal/lrosenbe/distill_env_cu126/lib/python3.11/site-packages/transformers/utils/output_capturing.py", line 248, in wrapper
-    outputs = func(self, *args, **kwargs)
-              ^^^^^^^^^^^^^^^^^^^^^^^^^^^
-AttributeError: 'int' object has no attribute 'shape'
