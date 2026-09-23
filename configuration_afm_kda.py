@@ -43,6 +43,13 @@ class AFMKDAConfig(ArceeConfig):
     kda_conv_size: int = 4                # fla calls this conv_size, not short_conv_kernel_size
     use_rope: bool = True                 # False => NoPE, as the reference does
     use_attn_gate: bool = False           # True  => sigmoid output gate, as the reference does
+    
+    # --- Track C: which linear-attention mechanism fills the non-attention layers
+    mechanism: str = "kda"          # "kda" | "gdn"
+    gdn_expand_v: float = 1.0   # GDN's fla default is 2.0 (value_dim 5120, from Mamba2).
+                                # 1.0 matches KDA, whose fla default is already 1, so every
+                                # projection stays 2560x2560 and the A5b transfer applies.
+    gdn_use_gate: bool = True       # GDN-only; KDA's output gate is not optional
 
     def __post_init__(self, **kwargs):
         if self.kda_layers is None:
@@ -56,10 +63,22 @@ class AFMKDAConfig(ArceeConfig):
         # the saved config.json has no pointer to our .py files and reloading
         # fails with "Transformers does not recognize this architecture".
         self.auto_map = dict(type(self).auto_map)
+        
+        if self.mechanism not in ("kda", "gdn"):
+            raise ValueError(
+                f"mechanism must be 'kda' or 'gdn', got {self.mechanism!r}")
 
-    def is_kda_layer(self, layer_idx: int) -> bool:
-        """0-based.  The reference does `(layer_idx + 1) in kda_layers`; we don't."""
+    
+    def is_linear_layer(self, layer_idx: int) -> bool:
+        """0-based.  True for a KDA *or* GDN layer -- whichever mechanism is set.
+
+        `kda_layers` names WHICH layers are linear, not WHAT fills them.  The
+        field keeps its name because renaming it would invalidate every saved
+        config.json, including the trained checkpoint.
+        """
         return layer_idx in self.kda_layers
+
+    is_kda_layer = is_linear_layer          # the name the rest of the code uses
 
 
 __all__ = ["AFMKDAConfig", "build_kda_layers"]

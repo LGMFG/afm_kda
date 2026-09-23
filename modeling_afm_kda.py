@@ -25,6 +25,11 @@ try:
 except ImportError as e:
     raise ImportError("pip install -U 'flash-linear-attention[cuda]'") from e
 
+try:
+    from fla.layers.gated_deltanet import GatedDeltaNet
+except ImportError as e:
+    raise ImportError("pip install -U 'flash-linear-attention[cuda]'") from e
+
 # --- B2': the two-cache bridge -------------------------------------------
 from fla.models.utils import Cache as FlaCache
 from transformers.cache_utils import DynamicCache
@@ -228,6 +233,74 @@ class AFMKDALinearAttention(nn.Module):
         return out, None            # no attention weights exist for a recurrent layer
 
 
+class AFMGDNLinearAttention(nn.Module):
+    """Adapts fla's GatedDeltaNet to ArceeDecoderLayer's call contract.
+
+    ⚠️ The mask/cache preamble below is DUPLICATED from AFMKDALinearAttention
+    on purpose.  Factoring it into a shared base would change the KDA path,
+    which is validated (A3, B6, B7, B7c) and is the code the trained
+    checkpoints run.  If you change one, change the other, and re-run A3.
+    """
+
+    def __init__(self, config: AFMKDAConfig, layer_idx: int):
+        super().__init__()
+        self.layer_idx = layer_idx
+        # Every argument by name.  GDN's trailing **kwargs swallows misspellings
+        # exactly as KDA's does.  Geometry is SHARED with KDA on purpose: the
+        # drop-in property is what makes the comparison about the mechanism.
+        self.attn = GatedDeltaNet(
+            hidden_size=config.hidden_size,
+            num_heads=config.kda_num_heads,       # shared geometry -- see C-1
+            head_dim=config.kda_head_dim,
+            conv_size=config.kda_conv_size,
+            expand_v=config.gdn_expand_v,         # GDN-only
+            use_gate=config.gdn_use_gate,         # GDN-only
+            mode="chunk",                         # fla asserts chunk during training
+            layer_idx=layer_idx,
+        )
+
+    def forward(
+        self,
+        hidden_states,
+        position_embeddings=None,   # accepted and ignored: GDN carries position implicitly
+        attention_mask=None,
+        past_key_values=None,
+        **kwargs,
+    ):
+        cu_seqlens = kwargs.get("cu_seqlens")
+        if cu_seqlens is not None:
+            # ⚠️ MANDATORY for GDN, not merely advisable as it is for KDA.
+            # GDN guards its UNPAD with `cu_seqlens is None` but NOT its REPAD,
+            # so supplying both leaves `indices` unbound -> NameError.
+            attention_mask = None
+        elif attention_mask is None or attention_mask.dim() != 2:
+            # super().forward() already turned the 2-D padding mask into a 4-D
+            # causal bias; fla asserts on anything but 2-D and needs the real
+            # padding mask for its unpad/repad path.   (Track B, defect 2)
+            attention_mask = getattr(self, "_padding_mask_2d", None)
+
+        # ---- B4': take the recurrent cache off the carrier ---------------
+        fla_cache = getattr(past_key_values, "fla", None)
+        want_cache = bool(kwargs.get("use_cache")) and fla_cache is not None
+
+        if (fla_cache is None and past_key_values is not None
+                and past_key_values.get_seq_length() > 0):
+            raise NotImplementedError(
+                "AFMGDNLinearAttention was asked to continue from a populated "
+                "cache that carries no fla state. This would silently produce "
+                "wrong output. Use AFMKDACache, or use_cache=False."
+            )
+
+        out, _, _ = self.attn(
+            hidden_states=hidden_states,
+            attention_mask=attention_mask,
+            past_key_values=fla_cache,
+            use_cache=want_cache,
+            cu_seqlens=cu_seqlens,
+        )
+        return out, None            # no attention weights exist for a recurrent layer
+
+
 class AFMKDADecoderLayer(ArceeDecoderLayer):
     """Same layer, but self_attn is chosen per index.
 
@@ -239,7 +312,12 @@ class AFMKDADecoderLayer(ArceeDecoderLayer):
     def __init__(self, config: AFMKDAConfig, layer_idx: int):
         super().__init__(config, layer_idx)  # builds an ArceeAttention we then replace
         if config.is_kda_layer(layer_idx):
-            self.self_attn = AFMKDALinearAttention(config, layer_idx)
+            if config.mechanism == "kda":
+                self.self_attn = AFMKDALinearAttention(config, layer_idx)
+            elif config.mechanism == "gdn":
+                self.self_attn = AFMGDNLinearAttention(config, layer_idx)
+            else:
+                raise ValueError(f"unknown mechanism {config.mechanism!r}")
         else:
             self.self_attn = AFMKDAAttention(config, layer_idx)
 
@@ -256,6 +334,12 @@ class AFMKDAModel(ArceeModel):
     }
 
     def __init__(self, config: AFMKDAConfig):
+        # ⚠️ The __post_init__ check does NOT catch a mechanism passed as a
+        # from_pretrained kwarg -- transformers applies those AFTER __post_init__.
+        # This is the point where a wrong value would silently build the wrong model.
+        if config.mechanism not in ("kda", "gdn"):
+            raise ValueError(
+                f"mechanism must be 'kda' or 'gdn', got {config.mechanism!r}")
         super().__init__(config)
         self.layers = nn.ModuleList(
             [AFMKDADecoderLayer(config, i) for i in range(config.num_hidden_layers)]
@@ -308,8 +392,10 @@ class AFMKDAModel(ArceeModel):
 
         raw2d = attention_mask if (attention_mask is not None
                                    and attention_mask.dim() == 2) else None
+
         for layer in self.layers:
-            if type(layer.self_attn).__name__ == "AFMKDALinearAttention":
+            if type(layer.self_attn).__name__ in (
+                    "AFMKDALinearAttention", "AFMGDNLinearAttention"):
                 layer.self_attn._padding_mask_2d = raw2d
 
         return super().forward(input_ids=input_ids, attention_mask=attention_mask, **kwargs)
@@ -370,17 +456,32 @@ def init_new_parameters(model, missing_keys):
     missing = set(missing_keys)
 
     # KDA's two special parameters need fla's own scheme, not a normal draw.
+    # GDN's added
     for name, module in model.named_modules():
-        if not isinstance(module, KimiDeltaAttention):
-            continue
-        if f"{name}.A_log" in missing:
-            module.A_log.copy_(torch.empty_like(module.A_log).uniform_(1, 16).log())
-        if f"{name}.dt_bias" in missing:
-            dt = torch.exp(
-                torch.empty_like(module.dt_bias).uniform_(0, 1)
-                * (math.log(0.1) - math.log(0.001)) + math.log(0.001)
-            ).clamp(min=1e-4)
-            module.dt_bias.copy_(dt + torch.log(-torch.expm1(-dt)))
+        if isinstance(module, KimiDeltaAttention):
+            if f"{name}.A_log" in missing:
+                module.A_log.copy_(
+                    torch.empty_like(module.A_log).uniform_(1, 16).log())
+            if f"{name}.dt_bias" in missing:
+                dt = torch.exp(
+                    torch.empty_like(module.dt_bias).uniform_(0, 1)
+                    * (math.log(0.1) - math.log(0.001)) + math.log(0.001)
+                ).clamp(min=1e-4)
+                module.dt_bias.copy_(dt + torch.log(-torch.expm1(-dt)))
+
+        elif isinstance(module, GatedDeltaNet):
+            # fla's own scheme, which is NOT KDA's:
+            #   A_log ~ log(uniform(0, 16))   -- KDA uses uniform(1, 16)
+            #   dt_bias is per HEAD [20]      -- KDA's is per CHANNEL [2560]
+            if f"{name}.A_log" in missing:
+                module.A_log.copy_(
+                    torch.empty_like(module.A_log).uniform_(0, 16).log())
+            if f"{name}.dt_bias" in missing:
+                dt = torch.exp(
+                    torch.empty_like(module.dt_bias).uniform_(0, 1)
+                    * (math.log(0.1) - math.log(0.001)) + math.log(0.001)
+                ).clamp(min=1e-4)
+                module.dt_bias.copy_(dt + torch.log(-torch.expm1(-dt)))
 
     for name, p in model.named_parameters():
         if name not in missing or name.endswith((".A_log", ".dt_bias")):
