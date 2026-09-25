@@ -2,6 +2,10 @@
 
 *Companion to `claude/building_the_student.md` (Track A — how the student was built) and `claude/first_distillkit_runs.md` (the live training document). This one covers **generation**: giving the student a working cache so it can write text, not just score it.*
 
+*Revision 15 (2026-09-25) — ✅ **B8's GSM8K full run landed**: teacher **0.5353**, student **0.0243** strict on all 1,319 items — **not zero** (5.8 σ, ~32 problems), and the student loses the `####` format as well as the arithmetic. ⚠️⚠️ **§7's account of *why* the benchmark spread looks the way it does is falsified by MMLU** (13.9 % relative, on a likelihood-scored task): the dividing line is the **shot count**, not likelihood-against-generation. ⭐ Also adds the **untrained B7 baseline** to §4 — 6–13 ulp and 27–30/32 across three students, against a trained model's 1–2.5 and 31–32/32, with a zero-padding control at 6.8 ulp that puts most of the magnitude outside padding entirely.*
+
+*Revision 14 (2026-09-25) — ⭐ **B6e re-run on `afm_kda_only_init`**, the all-linear student: fp32 worst 1.439e-02 against the hybrid's 8.021e-03, 32/32 argmax, and **growth with position unchanged at 8.1× where the hybrid reads 9.1×** — so stripping out all nine attention anchors did *not* make state drift worse. §4 has the table. ⚠️ Two corrections come with it: the script's own printed verdict threshold (1e-5) **predates the TF32 finding and would fail the validated hybrid**, and the run proves **less** about the `attn_layer_idx is None` fallbacks than it appears — in an all-linear model nothing consumes their answer, so they are *inert*, not *validated*. **B7 on an `only` student is the job that actually gates one.**
+
 *Revision 13 (2026-09-21) — **restructured.** Glossary removed; the terse status board replaced by a "what we set out to do / what we actually did" table; the applied patch and the full script sources removed in favour of pointers, since both now live in git (`afm_kda` @ `d7cd0a0`) and in the project folder. Content is unchanged except where marked.*
 
 *Revision 12 (2026-09-21) — ⭐⭐ **B7 CLOSED.** Two independent defects, both confirmed by reading transformers 5.8.1 and fla 0.5.2 and then measured: the causal mask was being built one column wide, and the 2-D padding mask never reached the KDA layers. Both fixed; B7 passes under sdpa and flash-attention.*
@@ -45,7 +49,7 @@ Writing means producing one token at a time, and no model recomputes the whole p
 | **B7** | Does it survive the way lm-eval actually generates — several prompts of different lengths, **left-padded**, in one batch? | Four rows (120/180/240/300) padded to 300, 32 teacher-forced tokens, teacher as control | `test_b7_batched.py` | ⚠️ Crashed twice before it could answer (§3), then ✅ **PASSED** under sdpa and flash-attention |
 | **B7b** | Stop guessing: **print** what each per-layer accessor answers, and the mask's stride | Probe with a forward pre-hook on the first attention layer | `test_b7b_mask_probe.py` | ✅ Student layers 0/1/2 answer `0`, layer 3 answers `300`. After the fix the decode mask is `(4,1,1,301)`, contiguous, **identical to the teacher's**, and the step survives |
 | **B7c** | Close the last gap: every test so far hand-rolled the decode loop; lm-eval calls `generate()` | Three prompts, left-padded, 48 greedy tokens, teacher first | `test_b7c_generate.py` | ✅ **PASSED 2026-09-22.** Fluent, factually correct prose on all three rows. ⭐ The row with the **most** padding (11 of 17 columns) gave the best output. `config.use_cache` printed **True** as loaded. ⚠️ And it caught the teacher loading with `use_cache=False` — see §6 |
-| **B8** | The generative benchmarks | GSM8K 5-shot + IFEval 0-shot, teacher first, `use_cache=True` forced on both | `eval_generative_afm.sbatch` | ⬜ |
+| **B8** | The generative benchmarks | GSM8K 5-shot + IFEval 0-shot, teacher first, `use_cache=True` forced on both | `eval_generative_afm.sbatch` | ✅ **GSM8K FULL, 1,319 items:** teacher **0.5353**, student **0.0243** strict. ⭐ **Not a Track B failure:** the same prompts with `use_cache=False` give **byte-identical** output. ⬜ IFEval still to run. See §7 |
 | **B9b** | Decode **throughput** vs context length — the half of B9 that needs the bridge | ⬜ | ⬜ | ⬜ |
 
 **The original B2/B3/B4 — convert everything to fla's `Cache`, as Arcee do — are dead.** B0 killed them in one debug job. The primed numbers are the replacement, and there is no separate "regular" track to keep straight.
@@ -188,6 +192,50 @@ KDA picks a **different Triton kernel** by sequence length. A 428-token pass run
 
 📌 **One caveat, recorded rather than waved away.** In fp32 the per-position error goes 7.863e-04 → 7.191e-03 over 32 steps, ~9× growth, invisible in bf16 under the 1.25e-01 quantisation step. Mild state drift and "early positions agree better by luck" both fit. It does not change the decision — even growing linearly it stays under bf16's noise floor for hundreds of tokens, and the teacher's own first→last moves too (*decreasing*, 1.748e-01 → 1.328e-01). ⬜ Worth one cheap check later: rerun at 128 steps and see whether the curve is bounded.
 
+### ⭐ B6e on `kda_only` — the same test with **no attention layers at all** *(2026-09-25)*
+
+`sbatch --export=ALL,MODEL=$WORK_LUKAS/students/afm_kda_only_init test_b6_cache.sbatch` — 36 linear layers, zero attention, same 128-token prompt + 32 forced tokens.
+
+| | worst \|Δlogit\| | median | first → last | argmax |
+|---|---|---|---|---|
+| hybrid, bf16 | 1.875e-01 *(1.5 ulp)* | 1.250e-01 | — | 31/32 |
+| **`only`, bf16** | **1.188e+00** *(4.8 ulp @ 35.0)* | 2.500e-01 | 2.266e-01 → 3.750e-01 | **31/32** |
+| hybrid, fp32 | 8.021e-03 | 4.251e-03 | 7.863e-04 → 7.191e-03 | 32/32 |
+| **`only`, fp32** | **1.439e-02** *(0.1 ulp)* | **1.266e-03** | 1.116e-03 → 8.989e-03 | **32/32** |
+| teacher, bf16 *(control)* | 1.875e-01 | 1.250e-01 | 1.748e-01 → 1.328e-01 | 31/32 |
+
+⚠️ **The verdict text the script prints is stale.** It asks for "~1e-5 or below", a threshold written *before* the TF32 finding two paragraphs up. **The hybrid — validated four ways since — reads 8.021e-03 and would fail that criterion too.** The live question is not "is it below 1e-5" but "is 1.439e-02 the same phenomenon as 8.021e-03". Three readings say yes:
+
+- **Precision scaling: 82.6×** (1.188e+00 → 1.439e-02), against the hybrid's 23.4×. Rounding shrinks by orders of magnitude between bf16 and fp32; a logic error shrinks by 1.
+- **⭐ Growth with position is unchanged: 8.1×** over 32 steps against the hybrid's 9.1×. **This is the decisive row.** Removing all nine attention layers removes every point in the stack where the two paths compute *the same function*, so if the fp32 drift in the caveat above were accumulating state error, 36 unanchored layers would make it **worse**. It does not.
+- **Argmax 32/32 in fp32 and 31/32 in bf16 — matching the teacher control exactly.** And the `only` model's fp32 *median* is 1.266e-03, **3.4× lower than the hybrid's**. The worst case is a max over 32 × 128,004 logits and is one outlier; the median is the robust statistic.
+
+⭐ **Why bf16 got worse while fp32 barely moved.** In the hybrid, nine of thirty-six layers are attention and run the *same* arithmetic on both paths, re-anchoring the residual stream eight times over. In `kda_only` every layer runs `chunk_kda` on one path and `fused_recurrent_kda` on the other, with nothing exact in between. 1.5 ulp → 4.8 ulp is that, and it is an arithmetic property of the kernel switch, not a defect.
+
+📌 **The teacher control reproduced to every digit** — 1.875e-01, median 1.250e-01, 1.748e-01 → 1.328e-01, 31/32, identical to B6e's row above. The harness is deterministic and the control is a genuine constant rather than a coincidence.
+
+#### ⚠️⚠️ But it proves **less** about the all-linear fallbacks than it looks
+
+The run was proposed as *the* test of `AFMKDACache`'s `attn_layer_idx is None` branches. It is not, and the reason is worth writing down: **in a model with no attention layers, nothing consumes the answer.**
+
+```
+get_seq_length()  ->  cache_position  ->  position_ids  ->  RoPE
+                                                             |
+                                    no linear layer reads position_embeddings
+
+get_mask_sizes()  ->  the causal mask  ->  read only by an attention layer
+                                           (and the B6 family passes no mask at
+                                            all, so it is never even called)
+```
+
+So `_counted` could be **permanently zero** and this test would still pass. The fallbacks are not *validated* here; they are **inert** — a different and weaker claim, though a reassuring one, because inert code cannot be wrong in a way that matters.
+
+**What the run did establish, and it is not nothing:** the recurrent state carries correctly through thirty-six linear layers with no re-anchoring, at the same precision character as the hybrid, with token-level agreement matching the control.
+
+**What actually gates an `only` student is Defect 2, not the fallbacks.** §3 says it already: with all 36 layers linear, a padding mask that fails to arrive makes left-padded batched generation *entirely* wrong rather than partly. That is the configuration lm-eval uses, and it is untested for either `only` variant. ⬜ **B7 on `afm_kda_only_init` is the job that matters.**
+
+⬜ **And the 128-step check now has a better subject.** The caveat above asks whether the fp32 curve is bounded; `kda_only` is the more sensitive probe because it has no anchors. The slope matters concretely: ~2.5e-4 per token, extrapolated linearly, reaches one bf16 ulp (0.25 at scale 35) somewhere near a thousand tokens — and **IFEval generates 2048**. In bf16, the condition that actually runs, the same curve grows only 1.65× over 32 steps because quantisation dominates. One debug job bounds it.
+
 ### B7 — batched, left-padded *(4 rows, 32 forced tokens each)*
 
 | impl | row | pad | teacher ulp / argmax | student ulp / argmax |
@@ -203,6 +251,25 @@ KDA picks a **different Triton kernel** by sequence length. A 428-token pass run
 ⚠️ **Only the sdpa run tested the patch.** Under flash-attention `create_causal_mask` short-circuits and the mask never becomes 4-D, so it reaches the KDA layers 2-D by itself and the stash is never exercised.
 
 *One unit in the last place (ulp) is the smallest difference the format can represent **at that magnitude**. bf16 keeps ~8 significant bits, so near a logit of 22 the spacing is 0.125 and near 34.5 it is 0.25. An absolute tolerance without a magnitude is meaningless — the mistake this track made three times.*
+
+### ⭐ B7 on three more students — the untrained baseline, 2026-09-25
+
+Run for Track C, recorded here because it is a Track B measurement and it establishes a baseline B7 never had.
+
+| student | state | pad 180 | pad 120 | pad 60 | pad 0 | argmax |
+|---|---|---|---|---|---|---|
+| teacher *(control)* | — | 1.8 ulp | 1.5 | 1.2 | 1.5 | 31–32/32 |
+| hybrid31 | **trained** | 1.5 | 2.5 | 1.1 | 1.5 | 31–32/32 |
+| `kda_only` | untrained | 7.5 | **9.3** | 5.8 | **8.5** | 29–30/32 |
+| `gdn_hybrid31` | untrained | **10.6** | 10.1 | 5.5 | 6.9 | 27–29/32 |
+| `kda_hybrid31` | untrained | **8.1** ← *best row* | 12.9 | 12.0 | **12.0** | 28–29/32 |
+| `gdn_hybrid31`, **one row, zero pad** | untrained | — | — | — | **6.8** | 28/32 |
+
+⭐⭐ **Two things settle it.** The zero-padding row reads **6.8 ulp at batch 1** — so most of the magnitude exists *before any pad token does*, and is the cost of comparing a masked varlen path against an unmasked dense one on an untrained model. And the untrained **KDA** hybrid is **worse** than the GDN one, with its *most-padded* row the **cleanest** — the opposite gradient. **Pad contamination does not produce opposite orderings in two models running the same stash loop.**
+
+⭐ **The untrained baseline is 6–13 ulp and 27–30/32**, against a trained model's 1–2.5 ulp and 31–32/32. ⚠️ **B7's published pass band was measured on a trained student and does not transfer to an untrained one** — argmax agreement is a function of how peaked the distribution is, and an untrained student sits at perplexity 2,765, where near-ties are everywhere.
+
+⚠️ **`LENS=120,120,120,120` silently collapses to a batch of one.** The script builds its batch from *distinct* lengths, so the intended four-equal-rows test never ran. It answered the question anyway — better, in fact, since batch 1 with no padding is the cleanest possible floor — but read the `batch N | lengths [...]` header before trusting what was tested.
 
 ### B9a — inference memory *(measured; the companion is B9b, still to run)*
 
@@ -328,9 +395,47 @@ sbatch $WORK_LUKAS/afm_kda/test_b7c_generate.sbatch
 
 **Read it for coherence, not for agreement with the teacher.** Greedy decoding is chaotic and B6c settled that the two diverge on near-ties. Pass: fluent, on-topic English on all three rows. Fail: repetition loops, or — the one to watch — the two **short** prompts degenerating while the long one is fine, which would be pad contamination that B7's 32-token comparison was too gentle to catch.
 
-### B8 — GSM8K and IFEval ⬜
+### 🔶 B8 — GSM8K and IFEval: the smoke run, and the control that closed Track B for good
 
-Teacher first, shot counts frozen the way `eval_zeroshot_afm.sbatch` froze them. These are the first benchmarks that need generation at all.
+Debug queue, teacher first, `use_cache=True` forced on both.
+
+| | n | GSM8K 5-shot |
+|---|---|---|
+| **teacher** | 20 | **0.60 ± 0.11** — consistent with Arcee's published 0.52, so the harness is sound |
+| **student, cache ON** | 20 | 0.00 strict / 0.05 flexible |
+| **student, cache OFF** | **5** | 0.00 / 0.00 — and **byte-identical generated text** on the five it shares |
+
+⚠️ *The cache-OFF control ran with `LIMIT=5`, not 20. It is a control, not a score: what it establishes is that the first five generations are character-for-character identical with and without the cache, which is all it was asked to do. Do not read 0.00/0.00 there as a measurement.*
+
+⭐⭐ **The control is what matters here.** Running the identical prompts through the full-recompute oracle produced the *same characters*, to the truncation point, including the same `#### 150,000` and the same `[invalid]` extractions. Not "agreeing within noise" — identical, despite the cached path switching Triton kernels mid-generation. **Whatever is wrong with the GSM8K number, it is not the cache.** Track B is closed by its own oracle.
+
+**What the samples show.** The student reproduces the few-shot *form* perfectly — `<<16*7=112>>` annotations, the `####` marker, clean termination on one of three — and fails the *arithmetic*: `2 + 0.5 = 2`, `150,000 − 120,000 = 150,000`. Two of three then loop. (The teacher loops too, on B7c's prompts; greedy decoding on a base model does this.)
+
+**Why a model at 79–89 % relative on ARC-C, HellaSwag and WinoGrande reads 4.5 % here.** Held-out CE is 2.4559 against the teacher's 2.2963 — a 17 % perplexity penalty — and a five-step arithmetic chain scored by exact match degrades **multiplicatively** where a single-option choice degrades gracefully.
+
+⚠️⚠️ **That was written as the general account of the benchmark spread, and MMLU falsified it on 2026-09-25.** MMLU is scored by likelihood over four fixed options — the *same* machinery as ARC-C — and it came in at **13.9 % relative** while ARC-C held at 79.1 %. **The line that actually separates the benchmarks is the shot count**: both 5-shot tasks are at the floor, all three 0-shot ones hold. Multiplicative composition survives only as the local reason GSM8K reads 4.5 % rather than 14 %. Full account, and the one job that separates the two surviving mechanisms: `claude/first_distillkit_runs.md` revision 20.
+
+⭐⭐ **And the cause is now measured, not guessed — but it is not what I first wrote here.** `test_r1_ce_math.py` compared the student-vs-teacher CE gap across three corpora:
+
+| corpus | gap | relative to web |
+|---|---|---|
+| web (FineWeb-Edu — **the training distribution**) | +0.1595 | 1.00× |
+| math (MetaMathQA) | +0.3372 | **2.11×** |
+| instruction / code (Tulu 3) | +0.3320 | **2.08×** |
+
+**Mathematics is not special. Distance from the training distribution is.** An instruction-and-code corpus, whose first document is Terraform, shows the same doubling. An earlier draft of this section ranked "frozen MLPs" as the best-supported cause; that ranking did not survive the control. **Full account and the arithmetic that rules out Tulu 3's own maths content as an explanation: `claude/first_distillkit_runs.md`, "What stage 1 did NOT recover".**
+
+✅ **The full run landed 2026-09-25 and the caution was vindicated.** Teacher **0.5353 ± 0.0137** strict — within 1.4 points of Arcee's published 52.1, so the harness is sound on the real set too. Student **0.0243 ± 0.0042** strict, **0.0349** flexible.
+
+⭐ **It is not zero.** 0.0243 on 1,319 items is about **32 problems solved**, **5.8 σ above zero**. The smoke run's 0/20 was consistent with a true rate up to ~14 %; the answer sits at the low end of that interval, which is exactly what the caution was for.
+
+⭐ **And the student loses the output FORMAT as well as the arithmetic.** Flexible 0.0349 against strict 0.0243 — roughly fourteen problems where the right number appeared but the `####` marker did not. The teacher is the other way round (strict 0.5353 ≥ flexible 0.5345): it always emits the marker. A model failing to reproduce a format it was shown five times is a **few-shot conditioning** signal, not an arithmetic one.
+
+⚠️ **And do not read the timing as a speed measurement.** The student took ~9 s/item against the teacher's ~2.3 s, but a model that fails to emit the stop string runs to the token cap — the ratio is confounded by output length. B9b is the measurement.
+
+⬜ **IFEval is the one remaining benchmark.** The budget argument all of this feeds is in `claude/first_distillkit_runs.md`, open decision 2.
+
+*Trap: **a modest perplexity penalty is not a modest benchmark penalty.** Errors compose multiplicatively along a generated chain and independently on a multiple-choice question.*
 
 ### B9b — decode throughput vs context length ⬜
 
@@ -390,6 +495,11 @@ All in `$WORK_LUKAS/afm_kda/` and mirrored in the project folder under `claude/`
 **On testing**
 
 - **⚠️ A pass under a configuration that bypasses the patched code is not evidence about the patch.** `flash_attention_2` short-circuits `create_causal_mask`, so B7's clean fa2 rows said nothing about the padding fix. Ask which run *could* have failed.
+- **⭐ The slow oracle keeps earning its keep.** `use_cache=False` was B1's ground truth, and months later it was the one experiment that could exonerate the cache against a bad benchmark number. Keep a correct-but-slow path available forever.
+- **⚠️ `--limit N` is a pipeline test, not a measurement.** 0/20 is consistent with a true rate up to ~14 %, and a generation-time ratio from it is confounded by output length.
+- **⚠️ A modest perplexity penalty is not a modest benchmark penalty.** +0.16 nats coexists with 74–89 % relative retention on discriminative tasks and ~0 on a multi-step generative one, because errors compose multiplicatively along a chain.
+- **⚠️ A fallback that nothing consumes cannot be tested by running it.** In an all-linear model `get_seq_length` feeds only RoPE and `get_mask_sizes` feeds only a causal mask, and no linear layer reads either — so a permanently-zero counter passes a green run. **Ask what would *observe* a wrong value before calling a pass coverage.**
+- **⚠️ A threshold printed by your own script ages.** `test_b6d_precision.py`'s verdict text still asked for 1e-5 long after TF32 had moved the real floor to ~1e-2 — it would have failed the validated hybrid. Read a decision rule against the reference *measurement*, not against the number you wrote before you had one.
 - **⚠️ A hand-rolled loop is not the code path the harness uses.** Five tests validated a decode loop we wrote; none called `generate()`. B7c closes that.
 - **⚠️ Greedy decoding is a chaotic map, so it is a bad equivalence test.** Two implementations agreeing to within a bf16 ulp still produce different text at the first near-tie. **Teacher-force the comparison** and the expected answer becomes exact.
 - **⚠️ A "logit difference" measured after a divergence is meaningless.** 2.178e+01 was two different contexts being compared, not an error magnitude.

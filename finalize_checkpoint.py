@@ -60,6 +60,7 @@ MARKERS = {
     "def get_mask_sizes": "B7  -- how wide the causal mask must be",
     "_padding_mask_2d":   "B7  -- the 2-D padding mask reaches the KDA layers",
     "_is_stateful":       "declares the model unsuitable for assisted generation",
+    "AFMGDNLinearAttention": "Track C -- the GDN adapter is present",
 }
 
 

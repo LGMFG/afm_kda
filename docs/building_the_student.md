@@ -2,21 +2,15 @@
 
 *Companion to `claude/startup_plan_and_pitfalls.md` (step 7 there points here) and `claude/first_distillkit_runs.md` (**the live document**). This one covers the model itself.*
 
-*Revision 30 (2026-09-20) — ⚠️ **the memory numbers are corrected by measurement.** Once B4' made the KDA layers actually store state, B6b measured **35.33 MB** for 27 layers where I had computed 18.06: the recurrent state is kept in **float32**, and the conv state is `conv_size` wide. The per-layer constant is **1.3086 MB**, so at 32k the hybrid is **3.77x** and kda_only **48.9x**, not 3.9x and 95.7x. ⭐ And the fixed state is not free: below a crossover at **T = 670 tokens** a converted model carries MORE state than the teacher.*
+*Revision 32 (2026-09-25) — ⚠️⚠️ **"What stage 1 does and does not recover" was wrong and is rewritten.** The full MMLU run — teacher **0.6500**, student **0.3055**, **13.9 % relative** — falsifies the likelihood-against-generation split this section was built on: MMLU is scored by likelihood over four fixed options, exactly like ARC-C, and it collapsed while ARC-C held at 79.1 %. **The dividing line is the shot count**: both 5-shot benchmarks are at the floor, all three 0-shot ones hold. Numbers, controls and the one job that separates the two surviving mechanisms: `claude/first_distillkit_runs.md`, revision 20.*
 
-*Revision 29 (2026-09-20) — **Track B moves out of this document** into `claude/track_b.md`, which now holds the whole plan, the patch and the scripts in one place; what remains here is a one-screen summary. This document is back to what it is for: **how the student was built (Track A, closed)** and **the GDN sibling (Track C, designed)**.*
+*Revision 31 (2026-09-22) — ⭐ **Track B is CLOSED.** The student generates: batched, left-padded, cached, through `generate()`. Two defects were found and fixed (mask width from a KDA layer; the 2-D padding mask never reaching KDA) — full account in `claude/track_b.md`. The Track B section below shrinks to its result. ⚠️ Also **deletes the superseded B9a table**: revision 27's 594 MB / 24.1 MB / 95.7× figures were computed under a bf16 assumption and were corrected by measurement in revision 28 to **611 MB / 47.1 MB / 48.9×**. Both tables were present and the wrong one was quotable. Track C's "do not interleave with Track B" constraint is lifted.*
 
-*Revision 28 (2026-09-20) — **B9a measured and B0b closed.** The memory curve is real: teacher 2,304 MB at 32k, hybrid **594 MB (3.9×)**, kda_only **24.1 MB (95.7×)**, with the KDA state flat at 18.06 MB from T=512 to T=32,768 — all three closed-form checks OK. ⚠️ The KDA column is *computed*, not measured, until B4′. B0b was read and is **inconclusive**; the question is dropped because B2′ makes it unreachable. **Track B is committed to B2′–B4′**, whose patch is now written out in full.*
+*Revision 30 (2026-09-20) — ⚠️ **the memory numbers are corrected by measurement.** Once B4' made the KDA layers actually store state, B6b measured **35.33 MB** for 27 layers where I had computed 18.06: the recurrent state is kept in **float32**, and the conv state is `conv_size` wide. The per-layer constant is **1.3086 MB**, so at 32k the hybrid is **3.77x** and kda_only **48.9x**. ⭐ And the fixed state is not free: below a crossover at **T = 670 tokens** a converted model carries MORE state than the teacher.*
 
-*Revision 27 (2026-09-20) — **corrects the memory headline and unblocks half of B9.** The "100× smaller state" is a **per-layer** number; at the model level the 3:1 hybrid is capped at **~3.9×** at 32k because it keeps nine attention layers, while **kda_only reaches ~96×**. That makes hybrid-vs-KDA-only the project's central quality/memory trade-off. And the memory curve is **measurable today** — a cache is built by any forward with `use_cache=True` — so B9a needs no bridge. Track B itself is paused at **B0b**: read the thirty lines of transformers that actually raise, before committing to B2′.*
+*Revision 29 (2026-09-20) — **Track B moves out of this document** into `claude/track_b.md`, which holds the whole plan, the patch and the scripts in one place; what remains here is a one-screen summary.*
 
-*Revision 26 (2026-09-20) — **B0 is closed and the plan changed because of it.** The full traceback shows the failure is inside transformers' own model wrapper, **before any of our code**, triggered purely by the cache object's type — so converting to fla's `Cache` at the top is not viable on fla 0.5.2 + transformers 5.x. **Track B switches to the two-cache design** (B2′–B4′ below), which leaves `ArceeModel.forward` untouched — the thing A3 depends on. Also: both `config.use_cache` and `generation_config.use_cache` are `False`, so **the R1 checkpoint already generates correctly today, just slowly.***
-
-*Revision 25 (2026-09-19) — **B0 ran.** fla's `Cache` *is* a transformers `Cache` subclass, so the bridge is viable; the forward still raised, and the evidence says it raised in **our** attention layer (B3's job), not in the inherited model. Three corrections to revision 24 recorded below, including one to a claim I had asserted twice: **the student's `config.use_cache` is `False`, not `True`.** ⚠️ The probe's own tracebacks went to stderr and were lost from the `.out` file — fixed, and recorded as a trap.*
-
-*Revision 24 — **the generation gap is promoted to Track B and given a stepped plan (B0–B8)**, in the same shape as Track A's ladder, with the argument for why it is not optional: without a working recurrent cache the thesis's central architectural claim — KDA's ~100× smaller inference state — cannot be measured at all. The GDN student becomes **Track C**. Also records the offline `MODEL_PATH` trap found while running the teacher baseline.*
-
-*Revision 23 — added the GDN parameter breakdown and the first sketch of the cache bridge. Revision 22 — closed against the real pipeline: R0's 7.918 met A5b's 7.9412; A9 showed the teacher cannot honour a segment mask. Revision 21 — `build_info.json` verified. Revision 20 — committed at `3aafffc`; four students rebuilt. Revision 19 — A7c closed. Revision 17 — corrected rev 16 on fla 0.5.2. Revision 16 — A7b added.*
+*Revisions 16–28 (2026-09-18 → 09-20) — B9a measured and corrected; B0/B0b closed and the fla-Cache-everywhere design abandoned; the "100× smaller" headline corrected to a per-layer number; `build_info.json` verified; A7c and A9 closed; four students built from `3aafffc`.*
 
 ---
 
@@ -24,11 +18,11 @@
 
 | Track | What it is | State |
 |---|---|---|
-| **A** | Build the KDA student and prove it is the model we think it is | ✅ **complete** — `3aafffc`, four students, R1 training |
-| **B** | Give it a working recurrent cache so it can **generate** | ⬜ **patch written** — full plan in `claude/track_b.md` |
-| **C** | Build the **GDN** sibling student for the mechanism comparison | ⬜ designed, not built |
+| **A** | Build the KDA student and prove it is the model we think it is | ✅ **complete** — `3aafffc`, four students, R1 trained |
+| **B** | Give it a working recurrent cache so it can **generate** | ✅ **complete** — `d7cd0a0`; full account in `claude/track_b.md` |
+| **C** | Build the **GDN** sibling student for the mechanism comparison | ⬜ **patch written**, full plan in `claude/building_GDN_student_track_c.md` |
 
-Track B gates GSM8K, IFEval, and every inference-side measurement. Track C gates the comparison that makes the thesis a study rather than a replication. **Neither blocks R1.**
+Track B gated GSM8K, IFEval, and every inference-side measurement; those are now ordinary evaluation jobs. Track C gates the comparison that makes the thesis a study rather than a replication.
 
 ---
 
@@ -61,13 +55,13 @@ Track B gates GSM8K, IFEval, and every inference-side measurement. Track C gates
 | gradient checkpointing | hand-rolled loop that drops `**kwargs` | inherited `GradientCheckpointingLayer` — ✅ A7 |
 | packed boundaries, **KDA** | raw mask reaches KDA — but fla **can't split on it** | `cu_seqlens` built explicitly — ✅ A7b |
 | packed boundaries, **attention** | flash's unpad path is never reached, so the patch is inert | varlen kwargs injected explicitly — ✅ A7c |
-| **generation / KV cache** | ✅ **works** — they unified on fla's `Cache` | ⬜ **not built** — **Track B** |
-| lines we own | ~500 | ~200 |
+| **generation / KV cache** | ✅ works — they unified on fla's `Cache` | ✅ **built — Track B, `d7cd0a0`** |
+| lines we own | ~500 | ~200 + Track B's ~40 |
 | ablations | edit the file | one config flag |
 
 ⚠️ **Revision 16 got the KDA row backwards** and was corrected in rev 17. Neither implementation got document isolation for free.
 
-**The honest scorecard:** our choice bought training correctness and a fifth of the code; theirs bought a complete model including generation. **Neither is wrong — they optimise for different things, and ours optimised for the right thing first.** Track B is the bill for that ordering, and it comes with their file as a worked answer.
+**The honest scorecard, now that Track B has landed:** our choice bought training correctness and a fifth of the code; theirs bought a complete model including generation. Track B was the bill for that ordering, it came to about forty lines, and **what we ended up with is strictly more capable than the reference** — correct under sdpa, eager *and* flash-attention, where theirs is correct only under flash-attention because it never builds a causal mask. **Neither ordering was wrong; ours optimised for the right thing first and the debt was payable.**
 
 ---
 
@@ -77,8 +71,9 @@ Track B gates GSM8K, IFEval, and every inference-side measurement. Track C gates
 |---|---|---|
 | **DistillKit** (your fork) | the *trainer* | `$WORK_LUKAS/distillkit` |
 | **AFM-4.5B-Base** | the *teacher*, unmodified | `$HF_HOME/hub/models--arcee-ai--AFM-4.5B-Base` |
-| **Student source** | the model *definition* + tests | `$WORK_LUKAS/afm_kda` (git, **`3aafffc`**) |
+| **Student source** | the model *definition* + tests + docs | `$WORK_LUKAS/afm_kda` (git, **`d7cd0a0`**) |
 | **Student checkpoint** ⬅ what the YAML points at | built, saved, reload-verified | **`$WORK_LUKAS/students/afm_kda_hybrid31_init`** |
+| **Trained checkpoint** | R1, stage 1, 300 M tokens | `$WORK_LUKAS/output/r1_stage1_hybrid31` |
 | *(reference)* | Arcee's converted student — read, don't copy | `$WORK_LUKAS/reference_kda_nope` |
 
 ```
@@ -88,30 +83,37 @@ afm_kda/                       (git repo -- code only)
   modeling_arcee.py            library copy, imports absolutised   }  commit
   TRANSFORMERS_VERSION
   configuration_afm_kda.py     yours
-  modeling_afm_kda.py          yours
+  modeling_afm_kda.py          yours   (+ Track B's cache bridge)
   build_student.py             builds + saves a student  (--variant)
-  test_a3.py  / .sbatch        A3 -- the regression test
-  test_a4.py  / .sbatch        A3b + A4 + A5
-  test_a5b.py / .sbatch        weight transfer: verification + ablation
-  test_a6_curve.py / .sbatch   KDA vs attention across sequence lengths
-  test_a7.py  / .sbatch        the layer honours cu_seqlens
-  test_a7b.py                  cu_seqlens ARRIVES -- the KDA runtime path
-  test_a7c.py                  the same question for the ATTENTION layers
-  test_a7c_probe.py            counts _get_unpad_data calls
-  test_a9.py                   can the TEACHER honour a segment mask?  (no)
-  .gitignore                   __pycache__, *.safetensors
+  finalize_checkpoint.py       verify markers, flip use_cache       <- Track B
+  test_a*.py  / .sbatch        the Track A ladder
+  test_b*.py  / .sbatch        the Track B ladder
+  eval_generative_afm.sbatch   GSM8K + IFEval
+  docs/                        the four project documents, versioned
+  .gitignore                   __pycache__, *.safetensors, logs/
 ```
 
 ⚠️ **Keep the checkpoints OUT of the git repo.** ~10 GB of safetensors inside `afm_kda/` would make `git add -A` unusable — hence the separate `students/` directory.
 
-⚠️ **Editing `afm_kda/` does not change a checkpoint.** Each `students/*_init/` directory holds its own copies of the five `.py` files, and `from_pretrained` imports *those*. So you can edit the repo freely while a job is queued or running — **but the `cp` re-sync loop below is what makes a change take effect**, and a queued job will pick up whatever is in the checkpoint when it starts.
+⚠️ **`logs/` must be gitignored too.** Without it, `git status --porcelain` is non-empty after every test job, which makes the provenance dirty-check permanently red and therefore useless.
 
-### The four students ✅ *(all built from `3aafffc`, 2026-09-18)*
+⚠️ **Editing `afm_kda/` does not change a checkpoint.** Each `students/*_init/` directory holds its own copies of the five `.py` files, and `from_pretrained` imports *those*.
+
+⭐ **The provenance model, settled 2026-09-22.** Rather than copying fixes into checkpoints after the fact — correctness by remembering — the chain is:
+
+```
+afm_kda/ under git  ->  students/*_init built from it  ->  save_pretrained carries
+the .py files into output/<run>  ->  the commit hash identifies the code
+```
+
+`finalize_checkpoint.py` therefore **verifies** rather than copies: it asserts a list of markers is present in the checkpoint's own `modeling_afm_kda.py`, checks `auto_map`, flips `use_cache`, and reports the git stamp. `--sync` (copy) is opt-in and exists only to retrofit a pre-fix checkpoint; **needing it on a fresh run is itself a finding.**
+
+### The four students ✅ *(all built from `3aafffc`, 2026-09-18; rebuild from `d7cd0a0` pending)*
 
 | Variant | Directory | What defines it |
 |---|---|---|
 | **hybrid 3:1 — the main run** | `students/afm_kda_hybrid31_init` | 27 KDA layers, `use_rope: false`, `use_attn_gate: true` |
-| KDA-only | `students/afm_kda_only_init` | all 36 layers KDA — **the clean test bed for A7b** |
+| KDA-only | `students/afm_kda_only_init` | all 36 layers KDA — **the clean test bed for A7b**, and the most valuable second run |
 | FLP | `students/afm_kda_flp_init` | full attention at 0,1,2,3 + 5 more — ⚠️ **layout not confirmed against theirs** |
 | de-novo ablation | `students/afm_kda_hybrid31_denovo_init` | same as hybrid31, `--no-transfer` (RADLADS's ablation) |
 | *(Track C, planned)* | `students/afm_gdn_hybrid31_init` | Gated DeltaNet — see Track C below |
@@ -119,6 +121,17 @@ afm_kda/                       (git repo -- code only)
 Convention: `afm_<mechanism>_<layout>_<stage>` — `init` before training, the run name after.
 
 ⚠️ **The directory name is only a label.** What defines the model is `config.json`.
+
+⚠️ **Before a `--force` rebuild, hash the weights first.** If the build is not deterministic, overwriting `afm_kda_hybrid31_init` destroys R1's exact starting point:
+
+```bash
+cd $WORK_LUKAS/students
+sha256sum afm_kda_hybrid31_init/*.safetensors > ~/init_before.txt
+# --- the real builder, with --force ---
+sha256sum -c ~/init_before.txt
+```
+
+`OK` means the init is reproducible from the commit. A mismatch is not a problem — it means the init is seeded per-run and the thesis says so — but you want to know which.
 
 ### ✅ `build_info.json` — verified 2026-09-18
 
@@ -152,7 +165,7 @@ Convention: `afm_<mechanism>_<layout>_<stage>` — `init` before training, the r
 
 Both are exact, and together with `parameters == 4,999,026,076` they pin the build three independent ways.
 
-⚠️ **These four builds record `"dirty": true`.** The five `code_files` copied into each checkpoint are the committed ones, so the models are honest, but a dirty flag means the hash alone does not reconstruct the tree. **Commit before every build and run.**
+⚠️ **These four builds record `"dirty": true`.** The five `code_files` copied into each checkpoint are the committed ones, so the models are honest, but a dirty flag means the hash alone does not reconstruct the tree. **Commit before every build and run** — and the rebuild from `d7cd0a0` should record `dirty: false`.
 
 ### ⭐ Iterating on model code without rebuilding
 
@@ -167,7 +180,9 @@ done
 
 Seconds instead of thirty minutes, because a forward-logic fix leaves the weights bit-identical (`torch.manual_seed(0)`, same init path). **Fast loop for debugging; a full `--force` rebuild afterwards** so `build_info.json` records the hash of the code actually in each checkpoint.
 
-⚠️ **Do not run this while a job is queued or running** unless you intend that job to use the new code. **This is the single rule that makes Track B safe to develop while R1 trains.**
+⚠️ **Do not run this while a job is queued or running** unless you intend that job to use the new code.
+
+⚠️ **The re-sync must cover the TRAINED checkpoints too**, not only `students/` — `output/r1_stage1_hybrid31` and `output/r1_stage1_hybrid31/checkpoint-4580` carry their own copies, and a test pointed at either would otherwise measure the pre-fix code. This bit us once during Track B.
 
 ### ⚠️ `$HF_HOME/modules/transformers_modules/` is not the student
 
@@ -194,6 +209,8 @@ AFMKDAForCausalLM
 
 Everything outside `self_attn` is the teacher's, byte for byte. RADLADS's point made concrete: **factual knowledge lives in the MLPs and embeddings; you are only replacing the routing machinery.**
 
+⚠️ **And stage 1 freezes the MLPs**, which is the single most likely explanation for the one capability that did not survive — see "What stage 1 does and does not recover" below.
+
 ### The 9 attention layers — 0-based indices 3, 7, 11, 15, 19, 23, 27, 31, 35
 
 ```
@@ -205,7 +222,7 @@ self_attn  (AFMKDAAttention)
 └── gate_proj   [2560 × 2560]   ★ NEW, random       (only if use_attn_gate)
 ```
 
-📌 **These nine layers are where Track B does most of its work.** They are the only ones that currently touch `past_key_values`, and they touch it with **transformers' API**, which is the API the bridge has to replace.
+📌 **These nine layers are where Track B did most of its work.** They are the only ones that touch `past_key_values` through transformers' API — and both of Track B's defects lived in how that API answers questions about them.
 
 ### The 27 KDA layers — everywhere else
 
@@ -248,7 +265,7 @@ self_attn  (AFMKDALinearAttention — our adapter)
 
 Changing the *caller* means rewriting the decoder layer and the model — the reference's ~500 lines. Changing the *callee* is 40 lines. We did the second, which is why `ArceeModel.forward` and `ArceeDecoderLayer.forward` are inherited untouched.
 
-⚠️ **Row three is how A7b's bug happened**, and **row four is Track B in one line.**
+⚠️ **Row three is how A7b's bug happened, and it came back as Track B's second defect** — the 4-D mask being dropped meant pad tokens entered the recurrent state. ⚠️ **Row four was the whole of Track B**, solved by `AFMKDACache(DynamicCache)` carrying an fla cache as an attribute rather than by replacing transformers' cache.
 
 ### The proportions
 
@@ -257,7 +274,7 @@ Changing the *caller* means rewriting the decoder layer and the model — the re
 | From the teacher | ~4.90 B | **98%** |
 | New, random | ~97 M | **2%** |
 
-**Only 2% of the student is new** — but that 2% is the entire mechanism by which tokens exchange information, which is why the model scores CE 7.94 instead of 2.30.
+**Only 2% of the student is new** — but that 2% is the entire mechanism by which tokens exchange information, which is why the model scores CE 7.94 instead of 2.30 at initialization.
 
 ### How the ★ parameters are randomized
 
@@ -280,97 +297,106 @@ Changing the *caller* means rewriting the decoder layer and the model — the re
 
 ---
 
-# 🔶 Track B — Generation ➜ **moved to `claude/track_b.md`**
+# 🔶 Track B — Generation ✅ **CLOSED 2026-09-22**
 
-*The full plan, the patch, the scripts and the status board now live in **`claude/track_b.md`**. This section is a one-screen summary so the three tracks still read together; do not keep two copies of the steps.*
+*Full account, mechanism, tests and traps: **`claude/track_b.md`**. This is the one-screen summary; do not keep two copies of the steps.*
 
-**The problem.** The student can score text but not write it, and the failure is silent. Generation keeps a cache; the nine attention layers keep a KV cache, the twenty-seven KDA layers should keep a fixed 20 × 128 × 128 recurrent state, and our adapter currently hardcodes `past_key_values=None, use_cache=False` so they keep nothing. Continue from a cache and the attention layers are right while the KDA layers behave as if the text just started — fluent, wrong, no error.
+**The problem.** The student could score text but not write it, and the failure was silent. Our adapter hardcoded `past_key_values=None, use_cache=False`, so the twenty-seven KDA layers kept no state; continuing from a cache would have had the attention layers right and the KDA layers behaving as if the text had just started — fluent, wrong, no error.
 
-**What it blocks:** GSM8K, IFEval, and decode-throughput-vs-context-length. **What it does not block:** the four likelihood-scored benchmarks, and — established 2026-09-20 — the inference **memory** curve, which any forward with `use_cache=True` already builds.
+**The design.** B0 killed the reference's approach in one debug job: handing fla's `Cache` to the inherited `ArceeModel.forward` raises inside transformers' own wrapper on 5.x. So transformers only ever sees a `DynamicCache` subclass — **`AFMKDACache`** — and the recurrent state rides along as an attribute.
 
-**Where it stands.**
+**The two defects, both confirmed by reading the library and then measured.**
+
+| | what was wrong | why it was invisible for so long |
+|---|---|---|
+| **1. mask width** | `get_mask_sizes` answered from layer 0, a KDA layer that stores nothing, so the causal mask was built **one column wide**. Broadcast to the real key length it acquires **stride 0**, which SDPA rejects | only reachable when a *padding* mask forces a 4-D mask to be built — every earlier test passed no mask at all |
+| **2. padding mask** | `create_causal_mask` turns the 2-D padding mask 4-D; fla asserts 2-D; our adapter dropped it — so **pad tokens entered the recurrent state** | the unpadded row always looked fine |
+
+⭐ **transformers 5.8.1/5.9.0 already implements the fix generically** — `LAYER_TYPE_CACHE_MAPPING` marks linear layers as non-`CacheLayerMixin` and `get_mask_sizes` skips to the first attention layer. It could not fire for us because our KDA layers are registered as *nothing*, so lazy replication fills those indices with empty `DynamicLayer`s that look like ordinary attention layers.
+
+**Where it landed.**
 
 | | |
 |---|---|
-| B0 / B0b | ✅ closed. Arcee's "fla `Cache` everywhere" design **fails on transformers 5.x**; the cause is unresolved and deliberately dropped |
-| B9a | ✅ **measured** — teacher 2,304 MB at 32k, hybrid 594 MB (3.9×), kda_only 24.1 MB (95.7×), KDA state flat |
-| B2′–B4′ | ⬜ **patch written** — `AFMKDACache(DynamicCache)` carrying an fla cache as an attribute |
-| B5, B1+B6, B7, B8, B9b | ⬜ scripts and order in `track_b.md` |
+| B5 | ✅ A3 still `0.000e+00` — the training path is untouched |
+| B6 / B6e | ✅ cached == uncached, token for token; **the teacher disagrees with itself by exactly the same 1.875e-01**, so the residual is this model's bf16 floor, not our bug |
+| B7 / B7b | ✅ batched, left-padded, cached — student 1.1–2.5 ulp against teacher 1.2–1.8, and the **most-padded row is the cleanest** |
+| B7c | ✅ one real `generate()` call — fluent, factually correct prose on all three rows |
+| B9a | ✅ memory measured: at 32k teacher 2,304 MB, hybrid **611 MB (3.77×)**, kda_only **47.1 MB (48.9×)** |
+| B8 | 🔶 GSM8K + IFEval — smoke run done, full runs pending |
+| B9b | ⬜ decode throughput vs context length — the headline speed number |
 
-⭐ **A reprieve worth knowing:** `config.use_cache` and `generation_config.use_cache` are both `False`, so `generate()` already recomputes the prefix every step — correct, just O(n²). GSM8K is runnable today; IFEval is not. **Do not set `use_cache: true` before the bridge lands.**
+⚠️ **`use_cache` is `false` in every checkpoint the Trainer writes** (gradient checkpointing forces it, `save_pretrained` serialises it) — **and Arcee ship theirs that way too**. Pass `use_cache=True` explicitly in `model_args` for *both* teacher and student; a config flipped on one side only is a fabricated speed comparison.
 
 ---
 
-# 🔷 Track C — the GDN student (designed, not yet built)
+## ⭐ What stage 1 does and does not recover — the GSM8K finding
 
-*`gdn_installed_0.5.2.py` in the project folder is the authoritative source — `fla/layers/gated_deltanet.py` from the installed 0.5.2, not GitHub.*
+*Detail and the budget argument: `claude/first_distillkit_runs.md`. Recorded here because it is a statement about the architecture, not about the run.*
 
-## ⭐ Why this is the right second mechanism
+After 300 M tokens of stage 1 with MLPs frozen, held-out CE is **2.4559** against the teacher's **2.2963** — a **17.3 % perplexity penalty**, and 97.2 % of the initialization gap closed. That modest language-modelling penalty shows up very differently depending on the task:
 
-Both KDA and Gated DeltaNet are gated delta-rule linear-attention layers, so at first glance the comparison looks narrow. **It isn't.** Look at how each one computes its forget gate:
+⚠️⚠️ **An earlier revision of this section split the benchmarks by scoring mode — likelihood against free generation — and called the asymmetry "mechanical". The full MMLU run falsified it on 2026-09-25**, and the corrected table is below. MMLU is scored by likelihood over four fixed options, exactly like ARC-C, and it collapsed.
 
-| | forget gate | granularity |
+| benchmark | **shots** | how it is scored | R1 student, relative |
+|---|---|---|---|
+| HellaSwag | **0** | likelihood over fixed options | **89.2 %** |
+| WinoGrande | **0** | likelihood over fixed options | **79.6 %** |
+| ARC-Challenge | **0** | likelihood over fixed options | **79.1 %** |
+| **MMLU** | **5** | likelihood over fixed options | **13.9 %** |
+| **GSM8K** | **5** | free generation, exact match | **4.5 %** |
+
+⭐⭐ **The line that separates them is the shot count, not the scoring mode.** Both collapsed benchmarks are the only 5-shot ones; all three that held are 0-shot. A 5-shot prompt asks the model to hold five worked exemplars in context and condition on them — **retrieval over distance**, which is what a fixed-size recurrent state is expected to do worst, and what the `MIN_DOC_TOK=600` control already pointed at.
+
+⚠️ **Two mechanisms remain confounded**: few-shot in-context learning itself, and the *distance of a templated 5-shot prompt from raw web text*. Every 5-shot task in the protocol is templated and every 0-shot task is natural prose, so five numbers cannot separate them. **ARC-C at 5-shot does, in one job.**
+
+📌 **Multiplicative composition survives, but only as a local explanation for GSM8K** — why it reads 4.5 % rather than 14 %. The generated samples still show the student reproducing the few-shot **form** (`<<16*7=112>>`, the `####` marker) and failing the **arithmetic** (`2 + 0.5 = 2`). It is no longer the general account.
+
+**It is not a generation bug.** The identical prompts run with `use_cache=False` — the full-recompute oracle — produce **byte-identical output**. Track B is exonerated by its own control.
+
+**The plausible causes, in order of evidential support:**
+
+1. **Budget and frozen MLPs.** Ours is 23 % of Arcee's tokens and omits the stage in which their MLPs unfreeze. RADLADS states outright that freezing MLPs and embeddings hurts. Arithmetic is the capability most associated with MLP circuits, and it is the one that vanished.
+2. **Compounding.** See above — this is why the number is ~0 rather than ~15.
+3. **The corpus.** FineWeb-Edu is raw web text; Arcee's mix is curated instruction data, which plausibly contains chain-of-thought arithmetic. This is the *same* single difference that explains our KL ≈ 0.35 against their ≈ 0.2 — every other hyperparameter is identical.
+
+⚠️ **GSM8K is the most fragile task even in the reference's own numbers.** Their hybrid retains 70.1 % relative on GSM8K against 93.0 % on HellaSwag; their kda_only drops to 51.4 %. Conversion hurts math most, with four times the budget.
+
+⚠️ **And the consequence for the thesis is about discrimination, not absolute score.** A benchmark that reads ~0 for *every* student cannot separate KDA from GDN — which loses the axis where linear-attention conversions are most often reported to suffer. That is the concrete argument for a second stage with MLPs unfrozen.
+
+### ⭐ The damage is NOT uniform — and NOT mathematics-specific either
+
+The student-vs-teacher CE gap is **+0.1595 on web text (its training distribution)** and about **twice that off it** — +0.3372 on mathematics, +0.3320 on instruction-and-code — at ~19 σ, surviving a boundary-density control. **What the gap tracks is distance from the training distribution, not arithmetic.**
+
+📌 **The numbers, the controls, the mixing arithmetic that rules out the obvious confound, and the budget argument live in `claude/first_distillkit_runs.md`** ("What stage 1 did NOT recover"). `test_r1_ce_math.py` is the measurement.
+
+⚠️ **An earlier revision of this section read the maths result as localised damage to arithmetic.** The third-corpus control did not support that, and the claim is withdrawn. *Two corpora are a difference; three are a pattern.*
+
+What belongs *here*, because it is about the architecture rather than about a run: **longer documents widen the gap off-distribution and leave it flat on-distribution** — the web gap held to three parts in ten thousand when mean document length doubled, while the off-distribution gap grew by a third. A fixed-size recurrent state carries a lossy summary of what came before, and the loss compounds with distance; where the student has learned the distribution well the compounding is absorbed, and where it has not it shows. ⚠️ **That is consistent with the architecture and not yet attributable to it** — any student would generalise worse off-distribution, and separating the two would need the same recipe on a non-converted student.
+
+---
+
+# 🔷 Track C — the GDN student ➜ **moved to `claude/building_GDN_student_track_c.md`**
+
+*The full plan, the verified fla comparison, the geometry, the patch and the order of work now live in **`claude/building_GDN_student_track_c.md`**. This section is a one-screen summary so the three tracks still read together; do not keep two copies of the steps.*
+
+**The research question.** Both KDA and Gated DeltaNet are gated delta-rule linear-attention layers, but they differ in exactly the place the Kimi Delta Attention paper stakes its claim: KDA's forget gate is **per channel** (`f_proj`: 2560 -> 128 -> 2560, so 2,560 decay values per token), GDN's is **per head** (`a_proj`: 2560 -> 20, twenty scalars). ⭐ **So KDA-vs-GDN here is a direct test of KDA's own central claim, in a setting its authors did not test** — distillation from a pretrained transformer rather than training from scratch. That is what makes this a study rather than a replication.
+
+**The configuration, settled.** `expand_v=1`, `use_gate=True`, 20x128 — the drop-in. Every projection stays 2560x2560, so `transfer_attention_into_kda()` applies unchanged and the initialisation scheme is identical. **Matched on projection geometry and initialisation, not on parameter count**: 32.90 M per GDN layer against KDA's 27.61 M, and the 5.29 M difference *is* GDN's full-rank output gate against KDA's 128-dim bottleneck — one of the two architectural differences being studied.
+
+**What it costs to build.** One new config field (`mechanism`), two GDN-only geometry extras, one adapter class, one decoder-layer branch, one line in `init_new_parameters` — and **one edit to shared code**: the padding-mask stash in `AFMKDAModel.forward` matches on a class-*name string*, so a GDN student would silently lose Track B's B7 fix. ⚠️ Re-run A3 after that one.
+
+**What it inherits free.** The whole of Track B. `AFMKDACache`, the `get_seq_length` and `get_mask_sizes` overrides and the padding-mask stash all live in the cache and the model, not in the KDA adapter, and are mechanism-agnostic.
+
+| variant | parameters | missing / unexpected |
 |---|---|---|
-| **KDA** | `f_proj`: 2560 → 128 → 2560 | **per channel** — 2560 decay values per token |
-| **GDN** | `a_proj`: 2560 → num_v_heads | **per head** — 20 scalars per token |
+| `gdn_hybrid31` ⬅ the run that matters | 5,141,828,536 | 360 / 108 |
+| `gdn_flp` | 5,141,828,536 | 360 / 108 |
+| `gdn_only` | 5,237,399,968 | 468 / 144 |
 
-**Fine-grained channel-wise gating is precisely what the Kimi Delta Attention paper claims as its advance over Gated DeltaNet.** So a KDA-vs-GDN comparison here is a direct test of that claim **in a setting its authors did not test** — distillation from a pretrained transformer rather than training from scratch. That is a research question, not a horse race, and it is what makes GDN the right choice rather than an arbitrary one.
+⚠️ **Computed, not measured** — they are what the build assertion checks.
 
-## Why GDN costs more at the same hidden size
-
-Both layers take 2560 in and give 2560 out. The difference is entirely internal.
-
-| component | **KDA** (20×128, expand_v=1) | **GDN** (recommended: 1920 key, expand_v=2) |
-|---|---|---|
-| q_proj | 2560→2560 — 6.55 M | 2560→1920 — 4.92 M |
-| k_proj | 2560→2560 — 6.55 M | 2560→1920 — 4.92 M |
-| v_proj | 2560→2560 — 6.55 M | 2560→**3840** — 9.83 M |
-| o_proj | 2560→2560 — 6.55 M | **3840**→2560 — 9.83 M |
-| **output gate** | 2560→**128**→2560 — 0.66 M | 2560→**3840** — 9.83 M |
-| **forget gate** | 2560→**128**→2560 — 0.66 M | 2560→20 — 0.05 M |
-| misc | 0.09 M | 0.05 M |
-| **total** | **27.6 M** | **39.4 M** |
-
-**Reason one — `expand_v=2`.** GDN widens the value stream to twice the key width, inherited from Mamba2: the recurrent state stores value vectors, and wider values mean more memory capacity. KDA uses `expand_v=1`. Setting GDN to `expand_v=1` removes this difference entirely.
-
-**Reason two — the output gate is full-rank in GDN, low-rank in KDA.** 9.83 M against 0.66 M, **fifteen times**. Even at `expand_v=1` it is 2560→2560 = 6.55 M, still ten times KDA's. This one cannot be tuned away; it is an architectural choice.
-
-📌 **GDN's recommended numbers are themselves a budget-matching convention, not a performance prescription.** The docstring is explicit: `0.75 × hidden` and `expand_v=2` exist so that a GDN layer costs `6 × hidden²`, *matching Mamba2*. Deviating from them to match KDA's budget instead is the same kind of move, anchored to a different reference. It is ordinary practice, not a violation.
-
-## The three candidate configurations
-
-| Config | Per layer | Student | A5b transfer | Character |
-|---|---|---|---|---|
-| **`expand_v=1`, `use_gate=True`, 20×128** ⬅ **recommended first** | ~32.8 M | ~5.13 B | ✅ **works unchanged** | drop-in; 2.6% heavier than the KDA student |
-| `expand_v=2`, 0.75h recommendation | ~39.4 M | ~5.32 B | ❌ shapes don't fit | GDN as its authors intend it |
-| `expand_v=1`, `use_gate=False`, 20×128 | ~26.3 M | ~4.98 B | ✅ works | closest parameter match, but removes GDN's gate |
-
-**Take the drop-in first.** Not because it is parameter-matched — it isn't quite, 32.8 against 27.6 in the mixing layers — but because it keeps *everything else identical*: same projection shapes (`q/k/v/o` all 2560×2560), same weight transfer, same initialization scheme, same adapter pattern. **The initialization difference would have been a far bigger confound than 19% more mixing parameters**, and the drop-in eliminates it.
-
-⭐ **And the residual gap is itself the finding.** After matching geometry, the 5.2 M/layer difference is *exactly* GDN's full-width output gate versus KDA's bottleneck. That is not an artefact of the config choice — it is one of the two architectural differences being studied. Report both parameter counts and say you matched projection geometry and initialization rather than parameter count.
-
-The third row is interesting later: simultaneously the closest parameter match **and** a gating ablation. Not the first experiment.
-
-## What building it needs
-
-Small, and mostly already in place:
-
-1. **`configuration_afm_kda.py`** — add a `mechanism: str = "kda"` field alongside `kda_layers`, and a matching set of `gdn_*` geometry fields.
-2. **`modeling_afm_kda.py`** — a sibling `AFMGDNLinearAttention` adapter. Same contract as `AFMKDALinearAttention`: absorb `position_embeddings`, drop non-2-D masks, return two values, pass `cu_seqlens` through. **If Track B is done first, it must also speak fla's `Cache`** — which is free, since GDN handles it natively the same way KDA does.
-3. **`build_student.py`** — one more entry in the `VARIANTS` table. `transfer_attention_into_kda()` works unchanged under the drop-in config, since the projection shapes match.
-4. A fresh **parameter-count assertion** for the new geometry, in the same style as `KDA_DELTA = 11_883_668`.
-5. **A3 equivalent:** GDN has no "flags off = the teacher" property, so the regression test is the parameter count plus forward/backward plus a CE measurement against the KDA student at initialization.
-
-⚠️ **A useful asymmetry spotted while reading.** GDN 0.5.2 has the guard KDA lacks:
-
-```python
-cu_seqlens = kwargs.get('cu_seqlens')
-if cu_seqlens is None and attention_mask is not None:      # KDA has no `cu_seqlens is None`
-```
-
-so GDN does **not** overwrite a supplied `cu_seqlens`. Two layers, same library version, opposite behaviour. Moot for us — nothing delivers a segment mask — but do not assume one layer's quirks carry to another. *(GDN's closing `pad_input` references `indices`, which is only bound inside that branch, so supplying both a `cu_seqlens` and a mask would raise `NameError` — the mirror image of KDA's silent overwrite.)*
-
-⚠️ **Do not write this code while an R1-class job is queued**, and do not interleave it with Track B — both edit `modeling_afm_kda.py`, and a bug in one would be attributed to the other.
+⚠️ **Blocked on one thing:** the `VARIANTS` table and parameter assertion from `build_student.py`, so the GDN entries match that file's structure rather than being bolted on beside it.
 
 ---
 
@@ -395,7 +421,7 @@ so GDN does **not** overwrite a supplied `cu_seqlens`. Two layers, same library 
 | | |
 |---|---|
 | Stage-1 convergence | token-averaged KL ≈ **0.2** on ~**300 M** tokens |
-| Long-context stage | ~1 B tokens at 32k, `lr 1e-5` |
+| Long-context stage | ~1 B tokens at 32k, `lr 1e-5`, **MLPs unfrozen** |
 | Training throughput | **8,000 tokens/s per H100** (hybrid) |
 
 ⚠️ **The post does not give FLP's remaining five indices**, and **their training data is an Arcee-internal instruction mix**, not FineWeb-Edu.
@@ -415,7 +441,7 @@ so GDN does **not** overwrite a supplied `cu_seqlens`. Two layers, same library 
 | `vocab_size: 128032` vs the teacher's 128004 | Mismatched logit widths break the KL loss | ✅ inherits 128004; asserted in `test_a3.py` |
 | `_tied_weights_keys` set while `tie_word_embeddings: False` | Contradictory, inert | ✅ inherited from the library |
 
-📌 **But their file also does something ours doesn't: it generates.** See Track B. The six defects are the price of rewriting the model; working generation is what they bought with it.
+📌 **Defect #2 is also why their model generates so easily** — never building a causal mask means there is no 4-D bias for SDPA to reject and fla gets the 2-D padding mask it wants. **Their simplicity is bought with the defect A3 caught us avoiding**, and Track B is what it cost us to be correct under every attention implementation rather than one.
 
 ### 📌 Document isolation in the reference — a difference, and then not even that
 
@@ -499,6 +525,8 @@ class ArceeConfig(PreTrainedConfig):      # note: PreTrainedConfig, capital T
 
 **There is no `__init__`.** Subclasses declare new fields as annotated class attributes and initialize through `__post_init__`.
 
+📌 *That `vocab_size: int = 32000` default is why both teacher and student log `bos_token_id must be … between 0 and 31999, got 128000` at load. It is dataclass-default validation, it appears identically on the unmodified teacher, and it is inherited noise — not ours.*
+
 ### ⚠️ Class attributes never reach `config.json` — the A8 bug
 
 `save_pretrained` calls `to_dict()`, which copies `self.__dict__` — **instance attributes only**. Reading a class attribute looks identical, **which is what hides the bug**.
@@ -550,7 +578,7 @@ class ArceeConfig(PreTrainedConfig):      # note: PreTrainedConfig, capital T
 | 4 | `len(hidden_states)` | **37 / 37**, max diff 0.000e+00 |
 | 5 | layer types | 36 attention, 0 KDA |
 
-**A3 is the regression test.** Run it after any change to the model code, *twice*. It has earned its keep four times, and **it is step B5 of Track B.**
+**A3 is the regression test.** Run it after any change to the model code, *twice*. It has earned its keep four times, and **it was step B5 of Track B** — where it passed again after the cache bridge landed.
 
 ### A3b + A4 + A5 — mean CE on 8 × 2048 held-out tokens ✅
 
@@ -591,27 +619,19 @@ class ArceeConfig(PreTrainedConfig):      # note: PreTrainedConfig, capital T
 
 **⚠️ Correction 2, from R0.** At the *model* level the penalty is only **~12%**, not 69% — the MLPs dilute the token-mixing cost. **A single-layer benchmark is not a model benchmark.**
 
+📌 **B8's smoke run is consistent with this.** GSM8K generation ran at ~9 s/item for the student against ~2.3 s for the teacher — but that ratio is **confounded by output length**, because a model that fails to emit the stop string runs to the token cap. Do not quote it as a speed measurement; B9b is the measurement.
+
 ### ⚠️ The "100× smaller" headline is a PER-LAYER number — the model-level figure is much smaller for the hybrid
 
 At 32k one attention layer's KV cache is `2 × 32768 × 4 × 128 ≈ 33.6 M` numbers; one KDA layer's recurrent state is `20 × 128 × 128 = 327,680`, **the same at 32k as at 128 tokens**. That really is ~100×, and it is the right number for one layer.
 
-**It is the wrong number for the model**, and A6's own trap says why: *a single-layer benchmark is not a model benchmark*. The 3:1 hybrid keeps **9 of 36** attention layers, so its total inference state cannot fall below one quarter of the teacher's however good KDA is. Closed form, bf16, `num_key_value_heads = 4`, `head_dim = 128`:
+**It is the wrong number for the model**, and A6's own trap says why: *a single-layer benchmark is not a model benchmark*. The 3:1 hybrid keeps **9 of 36** attention layers, so its total inference state cannot fall below one quarter of the teacher's however good KDA is.
 
-| context | teacher (36 attn) | **hybrid 3:1** (9 attn + 27 KDA) | **kda_only** (36 KDA) |
-|---|---|---|---|
-| 2,048 | 144.0 MB | 54.1 MB — **2.7×** | 24.1 MB — **6.0×** |
-| 8,192 | 576.0 MB | 162.1 MB — **3.6×** | 24.1 MB — **23.9×** |
-| 32,768 | 2,304.0 MB | 594.1 MB — **3.9×** | 24.1 MB — **95.7×** |
-
-⭐ **This is a thesis result, not a caveat.** The hybrid's nine retained attention layers are what buy its quality, and they are also what cap its memory advantage at ~4×. **The 100× belongs to the KDA-only student.** That turns "hybrid versus KDA-only" from a minor ablation into the project's central quality-versus-memory trade-off — and it is a strong argument for putting one full training run into `afm_kda_only_init`.
-
-⚠️ **Never quote a memory ratio without saying which model it belongs to.** Per-layer, hybrid and KDA-only differ by more than an order of magnitude at 32k.
-
-### ⚠️ B9a, corrected — the recurrent state is **fp32**, and the numbers change
+### ✅ B9a — inference memory, MEASURED and corrected 2026-09-20
 
 **The check did its job.** After B4′ the KDA layers actually populate their state, and the state rides on the cache object as `AFMKDACache.fla` — so a naive walk of `past_key_values` returned **KV + KDA together**. The closed form, which predicts KV alone, therefore flagged `*** MISMATCH ***`. That is the instrument working, not a failure.
 
-**And the mismatch carried a finding.** B6b measured **35.33 MB** for 27 KDA layers where the geometry predicted 18.06 MB. The ratio is not 2, so it is not a simple dtype doubling. Solving for it:
+**And the mismatch carried a finding.** B6b measured **35.33 MB** for 27 KDA layers where the geometry predicted 18.06 MB:
 
 ```
 measured / layer = 35.33 MB / 27 = 1,372,160 B
@@ -621,17 +641,9 @@ conv      3 × 2560 × 4 × 2 B  (bf16, width conv_size not conv_size−1) =    
                                              1,372,160   ✅ exact
 ```
 
-⭐ **The recurrent state is kept in float32, not bf16** — sensible, since the delta-rule state accumulates over thousands of steps and bf16 would drift — **and the conv state is `conv_size` wide, not `conv_size − 1`.** Both of my assumptions were wrong. The corrected constant is **1.3086 MB per KDA layer**, and it reproduces every row of the rerun: 44.3, 53.3, 71.3, 107.3, 179.3, 323.3, 611.3 for the hybrid, and a flat 47.1 for kda_only.
+⭐ **The recurrent state is kept in float32, not bf16** — sensible, since the delta-rule state accumulates over thousands of steps and bf16 would drift — **and the conv state is `conv_size` wide, not `conv_size − 1`.** Both of my assumptions were wrong. ✅ **Confirmed by looking**: the dtype dump reads `['recurrent_state'] Tensor(1, 20, 128, 128) torch.float32 = 1280.0 KB`. The corrected constant is **1.3086 MB per KDA layer**, and both closed-form checks now pass for all three models.
 
-✅ **Confirmed by looking, 2026-09-20.** The dtype dump reads exactly:
-
-```
-['recurrent_state'] Tensor(1, 20, 128, 128) torch.float32 = 1280.0 KB
-```
-
-`20 × 128 × 128 × 4 B = 1,310,720 B = 1280 KB`. The fp32 recurrent state is a fact, not an inference, and both closed-form checks (`check KV` and `check KDA`) now pass for all three models.
-
-#### The corrected table — total inference state, all measured
+#### The table — all measured
 
 | context | teacher | **hybrid 3:1** | **kda_only** |
 |---|---|---|---|
@@ -641,9 +653,9 @@ conv      3 × 2560 × 4 × 2 B  (bf16, width conv_size not conv_size−1) =    
 | 8,192 | 576.0 MB | 179.3 MB — 3.21× | 47.1 MB — 12.2× |
 | 32,768 | 2,304.0 MB | 611.3 MB — **3.77×** | 47.1 MB — **48.9×** |
 
-⚠️ **The headline drops from 95.7× to 48.9×**, because the state is fp32 and the conv state is wider than I assumed. Revision 27's table was computed under a bf16 assumption and is **wrong**; this one is measured.
+⚠️ **Revision 27 published 594 MB / 24.1 MB / 3.9× / 95.7× for this table, computed under a bf16 assumption. Those numbers are WRONG and have been deleted from this document** — if you find them quoted anywhere, they predate the measurement. **The headline is 48.9×, not 95.7×.**
 
-⭐⭐ **And the most interesting row is the first one, where the converted models use MORE memory than the teacher.** A fixed state is not a free state: it costs 1.31 MB per layer whether the context is 8 tokens or 32,768. Setting the two expressions equal:
+⭐⭐ **The most interesting row is the first one, where the converted models use MORE memory than the teacher.** A fixed state is not a free state: it costs 1.31 MB per layer whether the context is 8 tokens or 32,768.
 
 ```
 teacher KV  =  36 × 2 × T × 4 × 128 × 2 B
@@ -653,37 +665,11 @@ converted   =  n_attn × 2 × T × 4 × 128 × 2 B  +  n_kda × 1,372,160 B
 
 The crossover is the same for both because it is a **per-layer** property: each converted layer trades `2 × T × 512 × 2 B` of growing KV for 1,372,160 B of fixed state, and those are equal at T = 670 regardless of how many layers you convert.
 
-**This belongs in the thesis exactly as it is.** "Below ~670 tokens the conversion costs memory; above it the saving grows without bound, reaching 3.8× for the hybrid and 49× for KDA-only at 32k." That is a sharper and more defensible claim than a single ratio, and it is the kind of detail that shows the number was measured rather than quoted.
+**This belongs in the thesis exactly as it is.** "Below ~670 tokens the conversion costs memory; above it the saving grows without bound, reaching 3.8× for the hybrid and 49× for KDA-only at 32k." That is a sharper and more defensible claim than a single ratio.
 
----
+📌 **`peak fwd` is not the cache and must never be quoted as one.** It is 10,464 MB for the teacher and 8,160 MB for kda_only at 32k — only 22 % apart, because a full-sequence forward is dominated by activations, not by the cache. **The conversion buys almost nothing at prefill; it buys during decode.** Anyone reading a memory claim will ask this, so answer it before they do.
 
-### ✅ B9a — measured, 2026-09-20
-
-| context | teacher (36 attn) | **hybrid 3:1** (9 attn) | **kda_only** (36 KDA) |
-|---|---|---|---|
-| 512 | 36.0 MB | 27.1 MB — 1.3× | 24.1 MB — 1.5× |
-| 2,048 | 144.0 MB | 54.1 MB — 2.7× | 24.1 MB — 6.0× |
-| 8,192 | 576.0 MB | 162.1 MB — 3.6× | 24.1 MB — **23.9×** |
-| 32,768 | 2,304.0 MB | 594.1 MB — **3.9×** | 24.1 MB — **95.7×** |
-
-**All three closed-form checks returned OK**, so the recursive cache walk is finding every tensor and the measured column is trustworthy.
-
-⚠️ **Only the attention KV column is measured; the KDA state column is computed.** The 27 (or 36) KDA layers store nothing today — the adapter still hardcodes `use_cache=False` — so 18.06 MB and 24.08 MB come from the geometry (`20 × 128 × 128` plus three conv states, bf16). **They become measurable at B4′ and the measurement must reproduce exactly these figures.** Until then, say "computed" in the thesis, not "measured".
-
-⭐ **The flat column is the result.** KDA state reads 18.06 MB at T = 512 and 18.06 MB at T = 32,768. Constant in sequence length, stated as a number rather than as an argument. That is the whole architectural claim in one row.
-
-📌 **`peak fwd` is not the cache and must never be quoted as one.** It is 10,464 MB for the teacher and 8,160 MB for kda_only at 32k — only 22 % apart, because a full-sequence forward is dominated by activations, not by the cache. **The conversion buys almost nothing at prefill; it buys during decode, where the carried state is all that persists.** Anyone reading a memory claim will ask this, so answer it before they do.
-
-### ⭐ B9a — the memory curve is measurable TODAY, without the bridge
-
-A cache is built by any forward pass with `use_cache=True`; generation is only what *reads* it back. So the table above can be **measured** rather than computed, on the real checkpoints, with no Track B code: run a forward, walk the returned cache object, sum every tensor. `test_b9_cache_memory.py` does exactly that, and cross-checks the measurement against the closed form — if the two disagree, the walk missed a tensor and every number is suspect.
-
-The 27 KDA layers currently store nothing, so their state is the analytic figure above; once B4′ lands it becomes measurable too, and the measurement should reproduce 0.67 MB per layer.
-
-⚠️ **Do not quote `max_memory_allocated()` as "the cache".** It includes activations, which dominate a full-sequence forward at large T. The script reports it, clearly labelled, as a sanity number only.
-
-**What still needs the bridge:** decode throughput — tokens per second with the cache in the loop. That is the half of B9 that cannot be faked.
-
+⚠️ **Never quote a memory ratio without saying which model it belongs to.** Per-layer, hybrid and KDA-only differ by more than an order of magnitude at 32k. ⭐ And their own numbers put **kda_only ahead of the hybrid on MMLU and ARC-C** — which, with 48.9× against 3.77×, makes `afm_kda_only_init` the most valuable second training run.
 
 ### A7 — the KDA layer honours `cu_seqlens` ✅ **bit-exact**
 
@@ -708,8 +694,6 @@ The 27 KDA layers currently store nothing, so their state is the analytic figure
 
 **Three things had to line up wrongly:** the monkey patch never injects a layer kwarg; fla 0.5.2 then derives boundaries from `attention_mask`, but `get_unpad_data` cannot split a row and computes 701 for a 501-token one; and `create_causal_mask` had already turned the mask 4-D, which our adapter drops.
 
-**The fix — three changes, none redundant:**
-
 ```python
 def build_cu_seqlens(segment_mask: torch.Tensor) -> torch.Tensor:
     row = segment_mask[0]
@@ -725,16 +709,7 @@ def is_segment_mask(attention_mask) -> bool:
             and attention_mask.shape[0] == 1 and int(attention_mask.max()) > 1)
 ```
 
-```python
-        # in AFMKDALinearAttention.forward
-        cu_seqlens = kwargs.get("cu_seqlens")
-        if cu_seqlens is not None:
-            attention_mask = None      # MANDATORY: fla 0.5.2 would overwrite ours
-        elif attention_mask is not None and attention_mask.dim() != 2:
-            attention_mask = None
-```
-
-⚠️ **`shape[0] == 1` is load-bearing** — fla's varlen convention flattens the batch. ⚠️ **Pinned to fla 0.5.2.** ⚠️ **And `shape[0] == 1` is exactly what B7 has to revisit**, because batched left-padded generation arrives with `shape[0] > 1` and a genuine 2-D padding mask that KDA *does* need.
+⚠️ **`shape[0] == 1` is load-bearing** — fla's varlen convention flattens the batch. ⚠️ **Pinned to fla 0.5.2.** ⭐ **And `shape[0] == 1` is exactly what B7 revisited**: batched left-padded generation arrives with `shape[0] > 1` and a genuine 2-D padding mask that KDA *does* need. `is_segment_mask` correctly returns False there, and Track B added the separate stash that routes the padding mask through.
 
 ### A7c ⭐ — and the *attention* layers? ✅ **fixed**
 
@@ -754,8 +729,6 @@ get_unpad_data calls: 0  []
 ```
 
 The patch is correctly installed and never invoked — flash's unpad path exists to remove padding, and with none the branch is skipped. And **our `cu_seqlens` was already arriving**, under fla's name, which the flash interface doesn't recognize. **The boundaries were there; only the label was wrong.**
-
-**The fix — rename, and drop what doesn't belong:**
 
 ```python
         if is_segment_mask(attention_mask):
@@ -778,6 +751,8 @@ Pasted with `def forward` nested **inside `__init__`**, Python accepts it: `__in
 assert "forward" in AFMKDAModel.__dict__, \
     "AFMKDAModel.forward is not defined at class level -- check indentation"
 ```
+
+⭐ **Track B added a second import-time assert** beside it, on the same principle: `assert issubclass(AFMKDACache, DynamicCache)`.
 
 ### 📌 A9 — and what happened next
 
@@ -823,35 +798,53 @@ sbatch --export=ALL,VARIANT=hybrid31 build_student.sbatch   # ~20 GB RAM: a GPU 
 
 ---
 
-## Evaluating the student — what the protocol is, and one trap
+## Evaluating the student — the protocol, and the traps
 
-The frozen protocol lives in `claude/eval_zeroshot_afm.sbatch` and `claude/eval_mmlu_afm.sbatch`: **ARC-Challenge, HellaSwag, WinoGrande at 0-shot; MMLU at 5-shot; no chat template**, matching RADLADS and the practical work. Metrics: `acc_norm` for ARC-C and HellaSwag, `acc` for WinoGrande and MMLU. **Do not change a shot count once a student has been measured.**
+The frozen protocol lives in `claude/eval_zeroshot_afm.sbatch`, `claude/eval_mmlu_afm.sbatch` and `claude/eval_generative_afm.sbatch`:
+
+| tasks | shots | metric |
+|---|---|---|
+| ARC-Challenge, HellaSwag, WinoGrande | **0** | `acc_norm`, `acc_norm`, `acc` |
+| MMLU | **5** | `acc` |
+| **GSM8K** | **5** *(lm-eval's task default)* | `exact_match` |
+| **IFEval** | **0** *(its only mode)* | — |
+
+matching RADLADS and the practical work. **No chat template** — every model here is a base model. **Do not change a shot count once a student has been measured.**
+
+⚠️ **GSM8K at 0-shot would measure nothing** — a base model writes prose instead of an answer and both teacher and student score ~0. 5-shot is the setting where the number is interpretable.
+
+⚠️ **Pass `use_cache=True` explicitly in `model_args`, for every model.** The Trainer writes `use_cache: false` into every checkpoint it saves, and Arcee ship their published configs the same way — so a flag flipped on one side only makes the student O(n) and the teacher O(n²). State the setting once in the methods section; identical for both is the rule.
+
+⚠️ **`--limit N` is a pipeline test, not a measurement.** 20 items gives ±0.11 on a mid-range score, and 0/20 is consistent with a true rate of up to ~14 %. Smoke on the debug queue, then run the full set before quoting anything.
 
 ### ⚠️ Offline, a hub repo id is not a path — use the snapshot directory
 
-`MODEL_PATH=arcee-ai/AFM-4.5B-Base` failed with `OSError: We couldn't connect to 'https://huggingface.co' … and couldn't find them in the cached files`, even though the teacher was plainly in the cache and DistillKit loads it by that exact id every run.
+`MODEL_PATH=arcee-ai/AFM-4.5B-Base` failed with `OSError: We couldn't connect to 'https://huggingface.co' … and couldn't find them in the cached files`, even though the teacher was plainly in the cache.
 
-The reason is an environment-variable collision. `HF_HOME=$WORK_LUKAS/hf_cache` puts the hub store at `$WORK_LUKAS/hf_cache/**hub**/`, but the eval scripts also set `HUGGINGFACE_HUB_CACHE=$WORK_LUKAS/hf_cache`, which **overrides** that and points the resolver one directory too high. It looks for `hf_cache/models--arcee-ai--AFM-4.5B-Base`, finds nothing, tries the network, and is offline. DistillKit's sbatch never sets `HUGGINGFACE_HUB_CACHE`, which is why the same id works there.
+`HF_HOME=$WORK_LUKAS/hf_cache` puts the hub store at `$WORK_LUKAS/hf_cache/**hub**/`, but the eval scripts also set `HUGGINGFACE_HUB_CACHE=$WORK_LUKAS/hf_cache`, which **overrides** that and points the resolver one directory too high. It looks for `hf_cache/models--arcee-ai--AFM-4.5B-Base`, finds nothing, tries the network, and is offline.
 
-Either fix works — `HUGGINGFACE_HUB_CACHE=$HF_HOME/hub`, or the explicit snapshot path:
+⭐ **Prefer the explicit snapshot path, and not only because it works.** The snapshot hash *is* a provenance record: a repo id resolves to whatever revision the cache happens to hold, while `dab7922f…` pins the exact bytes that produced the number in the thesis.
 
-```
-MODEL_PATH=/leonardo_work/EUHPC_D34_049/WORK_LUKAS/hf_cache/hub/models--arcee-ai--AFM-4.5B-Base/snapshots/dab7922f9c868d479b365410304f466b007b1c5a
-```
+⚠️ **`eval-env2` needs `flash-linear-attention`** — installed 2026-09-19. Without it the student's remote code raises `ImportError` at load. Every eval sbatch now prints the installed version in its provenance block; read that line before assuming a crash is our code.
 
-⭐ **Prefer the explicit snapshot path, and not only because it works.** The snapshot hash *is* a provenance record: a repo id resolves to whatever revision the cache happens to hold, and could silently resolve differently after a re-download, while `dab7922f…` pins the exact bytes that produced the number in the thesis. The practical-work scripts did this, and it was the right instinct. **Every student is a plain directory anyway**, so explicit paths are the norm everywhere else.
-
-⚠️ **`eval-env2` does not have `flash-linear-attention`.** Irrelevant for the teacher; a hard `ImportError` inside `trust_remote_code` the first time a KDA student is evaluated. Install it there before the first student run.
+⭐ **The 5.8.1 / 5.9.0 environment skew is closed by measurement.** `test_r1_ce.py` returns identical numbers in both, and `DynamicCache.get_mask_sizes` is byte-identical between the two versions. Record both versions with the numbers and stop worrying about it.
 
 ---
 
-## Next: stage 1 → `claude/first_distillkit_runs.md`
+## Next
 
-Track A is closed. **R1 was submitted 2026-09-18** at 300 M tokens, 4 nodes.
+Track A is closed. Track B is closed. **R1 is trained and benchmarked.**
 
-**Stage 1's job, numerically:** take the hybrid from **CE 7.94** back toward the teacher's **2.30**, targeting held-out KL ≈ **0.2**.
+| | |
+|---|---|
+| ✅ **MMLU** — teacher **0.6500**, student **0.3055** | **13.9 % relative.** It fell hardest, as predicted, and **past the 55–65 % band this project pre-registered**. Full analysis: `first_distillkit_runs.md` |
+| 🔶 **B8** — GSM8K ✅ full (0.0243 strict vs 0.5353) · IFEval ⬜ | and GSM8K is **not zero**: 5.8 σ, ~32 of 1,319 |
+| ⬜ **B9b** — decode throughput vs context length | the speed half of the architectural claim |
+| ⬜ **Rebuild the four students** from `d7cd0a0` | hash the weights first |
+| ⬜ **Track C** — the GDN student | unblocked |
+| 🔶 **Budget decision** with Anamaria | see `first_distillkit_runs.md`, "Open decisions" |
 
-### Scope decision: skipping the long-context stage
+### Scope decision: the long-context stage
 
 > "I collapsed the first two distillation stages into a single one with frozen MLP parameters … **then allowed the long context fine tune to pick up any slack necessary in adjusting the MLP layers.**"
 
@@ -863,7 +856,7 @@ RADLADS's pipeline is three stages; Arcee merged 1 and 2 and used stage 3 as the
 | **(b) Stage 1 + a short full-parameter stage at 2048** | Unfreezes MLPs; **RADLADS stage 2** | ~1 extra stage-1-sized run |
 | **(c) All three stages** | What Arcee did | expensive |
 
-**Recommended: (b) if budget allows.**
+**Recommended: (b).** ⭐ **And the GSM8K result is now the concrete argument for it** — not "more tokens would be nice" but "one benchmark reads zero for every student and therefore cannot discriminate between them."
 
 ---
 
@@ -889,70 +882,88 @@ RADLADS's pipeline is three stages; Arcee merged 1 and 2 and used stage 3 as the
 [x] afm_kda committed at 3aafffc; four students built from it
 [x] build_info.json verified: 441/108, 4,999,026,076 params, fla 0.5.2
 
---- TRACK B: GENERATION -- full checklist lives in claude/track_b.md ---
+--- TRACK B: GENERATION -- COMPLETE.  Full record in claude/track_b.md ---
 [x] B0 / B0b. fla-Cache-everywhere FAILS on transformers 5.x; cause dropped
-[x] B9a. memory curve MEASURED: 2304 / 594 (3.9x) / 24.1 MB (95.7x) at 32k
-[ ] B2'-B4'. apply the patch in claude/track_b.md
-[ ] B5. A3 twice -> must still be 0.000e+00
-[ ] B1+B6, B7, B8, B9b -- see claude/track_b.md
+[x] B9a. memory curve MEASURED: 2304 / 611 (3.77x) / 47.1 MB (48.9x) at 32k
+[x] B2'-B4'. the two-cache bridge applied
+[x] B5. A3 twice -> still 0.000e+00
+[x] B1+B6/B6b/B6e. cached == uncached; teacher control settles the magnitude
+[x] B7 / B7b. batched + left-padded; get_mask_sizes and the padding-mask stash
+[x] B7c. one real generate() call -- fluent prose, most-padded row cleanest
+[x] afm_kda committed at d7cd0a0, clean tree; docs/ versioned in the repo
+[x] B8. GSM8K FULL (1,319): student 0.0243 strict vs teacher 0.5353
+[ ] B8. IFEval, FULL run -- the last outstanding benchmark
+[ ] B9b. decode throughput vs context length
 
---- TRACK C: GDN (designed, not built) ---
+--- TRACK C: GDN (designed, not built -- UNBLOCKED) ---
 [x] gdn_installed_0.5.2.py saved as the authoritative source
 [x] parameter breakdown done; the gap is expand_v + the output-gate rank
 [x] framing settled: this tests KDA's fine-grained-gating claim
 [x] configuration chosen: expand_v=1, use_gate=True, 20x128 (the drop-in)
+[ ] check GDN's unpad/repad block against KDA's -- do NOT assume B7 transfers
 [ ] AFMGDNLinearAttention adapter + `mechanism` config field
-[ ] build_student.py VARIANTS entry + parameter assertion
-[ ] build afm_gdn_hybrid31_init   -- AFTER R1 lands, and AFTER or BEFORE B, not during
+[ ] build_student.py VARIANTS entry + parameter assertion + a finalize marker
+[ ] build afm_gdn_hybrid31_init
 
 --- OPEN, NOT BLOCKING ---
-[ ] commit test_a9.py + build_student.sbatch so the tree is clean
+[x] MMLU, teacher and student -- 0.6500 / 0.3055 = 13.9% relative
+[ ] ARC-C at 5-shot -- DIAGNOSTIC: does a held benchmark collapse when the
+        prompt becomes a 5-shot template?  Separates ICL from format distance
+[ ] rebuild the four students from d7cd0a0 (hash the weights first)
 [ ] flp layout CONFIRMED against AFM-4.5B-Base-KDA-FLP/config.json (currently OURS)
 [ ] delete the leftover `_is_hf_initialized` diagnostic from test_a3.py
-[x] flash-linear-attention 0.5.2 + fla-core 0.5.2 installed into eval-env2;
-    torch/transformers/lm_eval unchanged (2.12.0+cu126 / 5.9.0 / 0.4.13.dev0)
-[x] [AFMKDA-PROBE] prints removed from the repo (were never re-synced -- the
-    module cache under $HF_HOME, not ~/.cache/huggingface, is what to clear)
-[ ] note the env skew: transformers 5.8.1 (distill_env) vs 5.9.0 (eval-env2)
+[ ] remove the now-dead .contiguous() line from AFMKDAAttention.forward
+[x] flash-linear-attention 0.5.2 + fla-core 0.5.2 installed into eval-env2
+[x] the 5.8.1 / 5.9.0 env skew: CLOSED by measurement, twice
 ```
 
 ## Traps, collected
 
-- **⚠️ Read how a configuration flag is consumed before building on what its name implies.** `functionary_packing` reads as "enable packing"; it means "assume the data is already packed in functionary's format", and does nothing without `dataset.prepacked`. Two lines in `main.py`.
-- **⚠️ Never quote a memory ratio without saying which model it belongs to.** Per layer KDA is ~100x smaller at 32k; the 3:1 hybrid is ~3.9x because it keeps 9 attention layers; kda_only is ~96x. Same architecture, three different honest numbers.
-- **⚠️ Separate what you observed from what you inferred.** B0 observed three identical failures in transformers' wrapper; the *reason* is a hypothesis, and acting on the hypothesis before reading the source would have thrown away the simpler design for nothing.
-- **⚠️ A ten-minute probe can retire a day of work.** B0 cost one debug-queue job and killed an approach that would have taken B2, B3 and B4 to discover was impossible. Probe the assumption the plan rests on, first.
-- **⚠️ The remote-code module cache is under `$HF_HOME`, not `~/.cache/huggingface`.** Clearing the wrong one is silent: the model loads and runs the old code.
+- **⚠️ Read how a configuration flag is consumed before building on what its name implies.** `functionary_packing` reads as "enable packing"; it means "assume the data is already packed in functionary's format".
+- **⭐ Read the library before patching around it.** transformers 5.8.1 already implements the hybrid `get_mask_sizes` redirect; it just could not see our layers. Four greps replaced a week of guessing.
+- **⚠️ Never quote a memory ratio without saying which model it belongs to.** Per layer KDA is ~100x smaller at 32k; the 3:1 hybrid is 3.77x because it keeps 9 attention layers; kda_only is 48.9x.
+- **⚠️ Delete a superseded table, do not leave it below the corrected one.** Revision 27's 95.7x sat under revision 28's 48.9x in this document for two days, both looking authoritative.
+- **⚠️ A pass under a configuration that bypasses the patched code is not evidence about the patch.** `flash_attention_2` never builds a 4-D mask, so B7's clean fa2 rows said nothing about the padding fix.
+- **⚠️ A broadcastable wrong shape does not raise.** A mask of width 1 against 301 keys broadcasts silently; the error surfaces three layers down as a contiguity complaint about a stride the kernel created itself.
+- **⚠️ Preventing a crash is not fixing a bug.** Dropping the 4-D mask kept fla's assertion quiet and let pad tokens into the recurrent state instead.
+- **⚠️ A hand-rolled loop is not the code path the harness uses.** Five Track B tests validated a decode loop we wrote; none called `generate()`.
+- **⚠️ A setting you fixed on one model is a setting you have now made asymmetric.** Flipping `use_cache` on the student silently created a confound with the teacher.
+- **⚠️ `--limit N` is a pipeline test, not a measurement.** 0/20 is consistent with a true rate up to ~14%.
+- **⚠️ Separate what you observed from what you inferred.** B0 observed three identical failures; the *reason* was a hypothesis.
+- **⚠️ A ten-minute probe can retire a day of work.** B0 cost one debug-queue job and killed an approach that would have taken three steps to discover was impossible.
+- **⚠️ The remote-code module cache is under `$HF_HOME`, not `~/.cache/huggingface`.** Clearing the wrong one is silent.
 - **⚠️ `save_pretrained` DOES copy remote-code `.py` files into a checkpoint.** Look in the directory before writing a workaround for a problem that isn't there.
-- **⚠️ The reference targets transformers 4.57 and we run 5.x.** That gap has now changed the answer six times — `_init_weights`, the causal mask, checkpointing kwargs, `auto_map`, `@strict` configs, and now the whole cache design.
-- **⚠️ Check what a guard sees on every path that reaches it, including evaluation.** A `use_cache` check written for training would have fired on R1's first eval pass and killed a four-hour run. **A safety check that fires on a legitimate path is worse than no check.**
-- **⚠️ The slow, obviously-correct workaround is usually the oracle for testing the fast fix.** `use_cache=False` generation is too slow to ship and exactly right as B1's ground truth.
-- **⚠️ A capability you cannot exercise is a claim you cannot make.** KDA's 100×-smaller inference state is the point of the whole project and is unmeasurable until generation works.
-- **A test that supplies the input it assumes confirms the assumption, not the system.** A7 → A7b → A7c → R0 → R0b → A9: each hop moved the question closer to production and each hop found something.
+- **⚠️ Fix the chain, not the artefacts.** Copying the model file into every checkpoint is correctness by remembering; committing the repo and rebuilding the init students is correctness by construction.
+- **⚠️ A signal that always fires is no signal.** An un-ignored `logs/` directory makes the dirty-tree provenance check permanently red.
+- **⚠️ The reference targets transformers 4.57 and we run 5.x.** That gap has now changed the answer seven times — `_init_weights`, the causal mask, checkpointing kwargs, `auto_map`, `@strict` configs, the cache design, and `get_mask_sizes`.
+- **⚠️ Check what a guard sees on every path that reaches it, including evaluation.** A `use_cache` check written for training would have fired on R1's first eval pass and killed a four-hour run.
+- **⚠️ The slow, obviously-correct workaround is usually the oracle for testing the fast fix.** `use_cache=False` generation was too slow to ship and exactly right as B1's ground truth — and, later, as the control that exonerated the cache on GSM8K.
+- **⚠️ A capability you cannot exercise is a claim you cannot make.**
+- **A test that supplies the input it assumes confirms the assumption, not the system.** A7 → A7b → A7c → R0 → R0b → A9.
 - **⚠️ A probe that can only report success tells you nothing when it fails.** Instrument the decision, not the happy path.
-- **⚠️ stdout and stderr are two different files under SLURM.** B0 printed `RAISED:` to stdout and the traceback to stderr, so the `.out` file recorded the failure and hid the reason. `traceback.print_exc(file=sys.stdout)`.
-- **⚠️ A discriminating test needs an input the two branches can disagree on.** B0's cached-vs-uncached control used sixteen arbitrary token ids; the difference was real but only 4%, because on gibberish the next token is dominated by the last one. Use real text, a few hundred tokens.
-- **`X.__dict__` answers "defined here", not "defined by this library".** B0's `own=` column read a thin alias subclass and reported that fla defines nothing.
-- **⚠️ A cache can lie about its length.** `get_seq_length()` reads layer 0, and in a hybrid layer 0 may store nothing — so `generate()` is told the cache is empty no matter what the attention layers hold.
+- **⚠️ stdout and stderr are two different files under SLURM.** `traceback.print_exc(file=sys.stdout)`.
+- **⚠️ `traceback.print_exc(limit=N)` truncates from the OUTSIDE.** It hid the raising frame twice on Track B.
+- **⚠️ A discriminating test needs an input the two branches can disagree on.** Sixteen arbitrary token ids hid a real bug behind a 4% difference.
+- **`X.__dict__` answers "defined here", not "defined by this library".**
+- **⚠️ A cache can lie about its length.** `get_seq_length()` reads layer 0, and in a hybrid layer 0 may store nothing.
 - **Count the calls before trusting a patch.** *A patch that is installed is not a patch that runs.*
 - **⚠️ A `def` one indent too deep is a silent no-op.** Assert `"forward" in Cls.__dict__` at import.
-- **Two identical numbers are a finding**, stronger than a merely-large number. It has meant "the mask is ignored entirely" three times — A7b, the vanished `forward`, and A9.
+- **Two identical numbers are a finding**, stronger than a merely-large number — A7b, the vanished `forward`, A9, and the byte-identical cached/uncached GSM8K output.
 - **Always include a negative control.**
-- **The same value can travel under two names.** The A7c probe showed `cu_seqlens` already arriving, unrecognized — **look at what is already there before building a second path.**
-- **⚠️ `HUGGINGFACE_HUB_CACHE` overrides `HF_HOME`'s `hub/` subdirectory.** Set one too high and every offline repo-id load fails with a *network* error that says nothing about paths. **Prefer an explicit snapshot path — it is also a provenance record.**
+- **The same value can travel under two names.** The A7c probe showed `cu_seqlens` already arriving, unrecognized.
+- **⚠️ `HUGGINGFACE_HUB_CACHE` overrides `HF_HOME`'s `hub/` subdirectory.** **Prefer an explicit snapshot path — it is also a provenance record.**
 - **Do not assume one library layer's quirks carry to its sibling.** KDA 0.5.2 overwrites a supplied `cu_seqlens`; GDN 0.5.2, same release, does not.
 - **Make the build record a number you can check by hand.** `loading_info` 441/108 re-verifies the whole inventory for free on every rebuild.
-- **`dict.get(key, default)` turns a wrong key into a plausible answer.** Print the whole object first.
+- **`dict.get(key, default)` turns a wrong key into a plausible answer.**
 - **A library file you downloaded is not the library you installed.**
-- **fla 0.5.2 overwrites `cu_seqlens` whenever a mask is present.** Supply one *or* the other.
 - **For a remote-code model, `config.json` is the contract; the class is decoration.**
 - **HF copies only ONE level of relative imports.** Clear the module cache after any `.py` change *or rename*.
-- **The `.py` files in a checkpoint directory are copies** — which is why editing the repo is safe while a job is queued, and why the re-sync loop is not.
 - **A variable assigned inside an sbatch script beats `--export`.** Use `${VAR:-default}`.
 - **A dirty tree makes a recorded hash a half-truth.**
 - **Never override `_init_weights` on a subclass of a library model in transformers 5.**
 - **Run any suspect test twice.**
-- **If a test needs a tolerance you invented, redesign the test.**
+- **If a test needs a tolerance you invented, redesign the test.** Three invented tolerances broke Track B before the kernel source was read.
+- **⚠️ An absolute floating-point tolerance is meaningless without a magnitude.** One bf16 ulp at logit scale 34.5 is 0.25.
 - **A NaN can be the answer, not a broken test.**
 - **GQA expansion is group-major.** Query head `h` uses KV head `h // n_rep`.
 - **transformers 5.x configs are `@strict` dataclasses.**
@@ -960,19 +971,24 @@ RADLADS's pipeline is three stages; Arcee merged 1 and 2 and used stage 3 as the
 - **`re.search` matches anywhere; `re.match` only at position 0.**
 - **`use_qk_l2norm_in_kernel=True` discards transferred q/k magnitude.**
 - **The reference's layer indices are 1-based; ours are 0-based.**
-- **Never splat a config dict into a fla layer constructor.** The trailing `**kwargs` swallows misspellings.
+- **Never splat a config dict into a fla layer constructor.**
 - **RoPE has no learned parameters.** **36 layers, 37 hidden states.**
-- **A single-layer benchmark is not a model benchmark.** A6's 0.31× became **0.88×** at the model level.
-- **KDA's memory advantage is an inference property**, not a training one — which is exactly why Track B exists.
+- **A single-layer benchmark is not a model benchmark.** A6's 0.31× became ~0.88× at the model level — and a generation-speed ratio is confounded by output length.
+- **KDA's memory advantage is an inference property**, not a training one.
 - **A checkpoint's directory name is a label; `config.json` is the definition.**
 - **Two independent measurements agreeing is worth more than either alone.** A5b's 7.9412 and R0's 7.918.
+- **⚠️ A modest perplexity penalty is not a modest benchmark penalty.** +0.16 nats (17% perplexity) coexists with 79–89% relative retention on three 0-shot benchmarks and **4–14% on the two 5-shot ones**.
+- **⭐⭐ A second data point can falsify the explanation you built on the first.** "Errors compose multiplicatively along a generated chain" accounted for GSM8K perfectly and is powerless against MMLU — one forward pass, an argmax over four options, and it collapsed anyway. The property the two share is the **shot count**, which nobody was looking at.
+- **⚠️ Pre-register the band, then honour it when you miss.** This document wrote "55–65 % relative on MMLU would be the honest, interesting result". It came in at **13.9 %**. A pre-registration is worth nothing unless a miss is recorded as a miss.
 
 ## Sources
 
-- `distillkit_blogpost_kda.txt` — [Distilling Kimi Delta Attention into AFM-4.5B](https://www.arcee.ai/blog/distilling-kimi-delta-attention-into-afm-4-5b-and-the-tool-we-used-to-do-it), Charles Goddard, 2025-12-15
-- `RADLADS.pdf` — three-stage pipeline; de-novo-initialization and frozen-MLP ablations; **the 0-shot / 5-shot-MMLU evaluation convention**. ⚠️ **Says nothing about packing or document boundaries**
+- `distillkit_blogpost_kda.txt` — [Distilling Kimi Delta Attention into AFM-4.5B](https://www.arcee.ai/blog/distilling-kimi-delta-attention-into-afm-4-5b-and-the-tool-we-used-to-do-it), Charles Goddard
+- `RADLADS.pdf` — three-stage pipeline; de-novo-initialization and frozen-MLP ablations; **the 0-shot / 5-shot-MMLU evaluation convention**
 - `kda_installed_0.5.2.py` and `gdn_installed_0.5.2.py` — **the authoritative fla sources**
-- `modeling_arcee_kda.py` — the reference implementation; ⭐ **and the working template for Track B's fla `Cache` bridge**
+- `modeling_arcee_kda.py` — the reference implementation; ⭐ read for what it *avoids*
+- transformers 5.8.1 / 5.9.0, read directly: `cache_utils.py`, `masking_utils.py`, `integrations/sdpa_attention.py`, `models/qwen3_next/`
 - `main.py`, `trainer.py`, `signals.py`, `monkey_patch_packing.py`, `pack_logits.py` (DistillKit)
-- `claude/eval_zeroshot_afm.sbatch`, `claude/eval_mmlu_afm.sbatch` — the frozen evaluation protocol
-- [arcee-ai/AFM-4.5B-Base config.json](https://huggingface.co/arcee-ai/AFM-4.5B-Base/blob/main/config.json) · [AFM-4.5B-Base-KDA-NoPE](https://huggingface.co/arcee-ai/AFM-4.5B-Base-KDA-NoPE)
+- `claude/track_b.md` — the generation track, complete
+- `claude/eval_zeroshot_afm.sbatch`, `claude/eval_mmlu_afm.sbatch`, `claude/eval_generative_afm.sbatch` — the frozen evaluation protocol
+- [arcee-ai/AFM-4.5B-Base](https://huggingface.co/arcee-ai/AFM-4.5B-Base) · [AFM-4.5B-Base-KDA-Only](https://huggingface.co/arcee-ai/AFM-4.5B-Base-KDA-Only) — the latter's config carries `use_cache: false`

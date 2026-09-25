@@ -28,7 +28,6 @@ teacher = AutoModelForCausalLM.from_pretrained(
 cfg = AFMKDAConfig.from_pretrained(TEACHER, kda_layers=[])
 assert cfg.vocab_size == 128004, cfg.vocab_size   # must match the teacher, or KL breaks
 
-
 student, info = AFMKDAForCausalLM.from_pretrained(
     TEACHER, config=cfg, dtype=DTYPE, attn_implementation=IMPL,
     output_loading_info=True,                   # <-- gives us the key lists
@@ -38,7 +37,7 @@ student = student.to(DEV).eval()
 flagged = sum(1 for _, p in student.named_parameters()
               if getattr(p, "_is_hf_initialized", False))
 total = sum(1 for _ in student.named_parameters())
-print(f"\n_is_hf_initialized set on {flagged}/{total} parameters")
+#print(f"\n_is_hf_initialized set on {flagged}/{total} parameters")
 
 print("=== CHECK 1: weight loading ===")
 for k in ("missing_keys", "unexpected_keys", "mismatched_keys"):
