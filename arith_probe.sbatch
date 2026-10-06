@@ -18,6 +18,7 @@
 #   sbatch --export=ALL,SET=b      arith_probe.sbatch    R3, R4, R5 (final)
 #   sbatch --export=ALL,SET=curve1 arith_probe.sbatch    R5 checkpoints 1-5
 #   sbatch --export=ALL,SET=curve2 arith_probe.sbatch    R5 checkpoints 6-10
+#   sbatch --export=ALL,SET=b1     arith_probe.sbatch    R1 + R5 at batch size 1 (control)
 #
 # Debug QoS runs two at once: submit a + b together, then curve1 + curve2.
 # A job killed at the 30-minute limit is FINISHED by resubmitting the same
@@ -26,7 +27,7 @@
 # SET is read with ${SET:?}, never assigned here, because a plain
 # assignment in the script would silently beat --export.
 # =====================================================================
-: "${SET:?submit with --export=ALL,SET=a|b|curve1|curve2}"
+: "${SET:?submit with --export=ALL,SET=a|b|curve1|curve2|b1}"
 
 source /leonardo/home/userexternal/lrosenbe/distill_env_cu126/bin/activate
 export WORK_LUKAS=/leonardo_work/EUHPC_D34_049/WORK_LUKAS
@@ -62,6 +63,16 @@ case "$SET" in
      # checkpoint-34940 is the same weights as R5's top-level: a free identity check
      for s in 20964 24458 27952 31446 34940; do
        MODELS+=("r5_ck$(printf %05d $s)=$R5/checkpoint-$s"); done ;;
+  b1) # BATCHING CONTROL: R1 and R5 at batch size 1 into a separate directory.
+      # Compared problem-by-problem with the batched run, this measures how
+      # much batching moved any ANSWER (the built-in check compares whole
+      # 12-token continuations, most of which lie after the answer).
+     OUT=$WORK_LUKAS/eval_results/arith_probe_v2_bs1
+     EXTRA="--batch-size 1 --no-check-batching"
+     MODELS=(
+       "r1_kda_hybrid=$O/r1_stage1_hybrid31/checkpoint-4580"
+       "r5_kda_hybrid_1ep=$R5"
+     ) ;;
   *) echo "FATAL: unknown SET=$SET"; exit 1 ;;
 esac
 
@@ -75,7 +86,7 @@ print('VERSIONS torch', torch.__version__, '| transformers', transformers.__vers
 '| fla', version('flash-linear-attention'))"
 nvidia-smi --query-gpu=name,memory.total --format=csv,noheader
 
-python $PROBE_DIR/arith_probe.py --out $OUT --tokenizer $TEACHER "${ARGS[@]}"
+python $PROBE_DIR/arith_probe.py --out $OUT --tokenizer $TEACHER ${EXTRA:-} "${ARGS[@]}"
 RC=$?
 echo "arith_probe exited $RC"
 exit $RC
