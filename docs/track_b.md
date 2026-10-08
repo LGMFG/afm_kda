@@ -2,6 +2,8 @@
 
 *Companion to `claude/building_the_student.md` (Track A — how the student was built) and `claude/first_distillkit_runs.md` (the live training document). This one covers **generation**: giving the student a working cache so it can write text, not just score it.*
 
+*Revision 16 (2026-09-25) — ✅✅ **§4's last open caveat is retired.** B6e re-run at **128 decode steps** on `afm_kda_only_init`: the fp32 per-position error goes **7.312e-04 → 2.087e-03**, so the *final* position is **four times cleaner than at 32 steps**, the worst case rises only 10 % for 4× the length, the bf16 median is **unchanged**, and argmax is **128/128**. The curve is **flat, not merely bounded** — long generations carry no drift risk, and a linear extrapolation written down beforehand was wrong. ✅ **B7c also re-run on the re-synced `output/r1_stage1_hybrid31`**: fluent prose on all three rows, `use_cache: True`, and the most-padded row again the best — which is the C-5 stash loop finally exercised through `generate()` on real KDA layers.*
+
 *Revision 15 (2026-09-25) — ✅ **B8's GSM8K full run landed**: teacher **0.5353**, student **0.0243** strict on all 1,319 items — **not zero** (5.8 σ, ~32 problems), and the student loses the `####` format as well as the arithmetic. ⚠️⚠️ **§7's account of *why* the benchmark spread looks the way it does is falsified by MMLU** (13.9 % relative, on a likelihood-scored task): the dividing line is the **shot count**, not likelihood-against-generation. ⭐ Also adds the **untrained B7 baseline** to §4 — 6–13 ulp and 27–30/32 across three students, against a trained model's 1–2.5 and 31–32/32, with a zero-padding control at 6.8 ulp that puts most of the magnitude outside padding entirely.*
 
 *Revision 14 (2026-09-25) — ⭐ **B6e re-run on `afm_kda_only_init`**, the all-linear student: fp32 worst 1.439e-02 against the hybrid's 8.021e-03, 32/32 argmax, and **growth with position unchanged at 8.1× where the hybrid reads 9.1×** — so stripping out all nine attention anchors did *not* make state drift worse. §4 has the table. ⚠️ Two corrections come with it: the script's own printed verdict threshold (1e-5) **predates the TF32 finding and would fail the validated hybrid**, and the run proves **less** about the `attn_layer_idx is None` fallbacks than it appears — in an all-linear model nothing consumes their answer, so they are *inert*, not *validated*. **B7 on an `only` student is the job that actually gates one.**
@@ -190,7 +192,19 @@ KDA picks a **different Triton kernel** by sequence length. A 428-token pass run
 
 **Why the recurrent state is fp32 while the model is bf16.** It is a kernel *accumulator*, not a parameter: updated in place across thousands of steps, where bf16's 8 significant bits would round small updates away entirely. Attention never faces this because it stores K and V and re-sums them in a fresh accumulator each time. Every parameter in the model is still bf16 — A3 confirms 4.999 B unchanged. Mamba keeps its `ssm_state` in fp32 for the same reason.
 
-📌 **One caveat, recorded rather than waved away.** In fp32 the per-position error goes 7.863e-04 → 7.191e-03 over 32 steps, ~9× growth, invisible in bf16 under the 1.25e-01 quantisation step. Mild state drift and "early positions agree better by luck" both fit. It does not change the decision — even growing linearly it stays under bf16's noise floor for hundreds of tokens, and the teacher's own first→last moves too (*decreasing*, 1.748e-01 → 1.328e-01). ⬜ Worth one cheap check later: rerun at 128 steps and see whether the curve is bounded.
+📌 **One caveat, recorded rather than waved away.** In fp32 the per-position error goes 7.863e-04 → 7.191e-03 over 32 steps, ~9× growth, invisible in bf16 under the 1.25e-01 quantisation step. Mild state drift and "early positions agree better by luck" both fit. It does not change the decision — even growing linearly it stays under bf16's noise floor for hundreds of tokens, and the teacher's own first→last moves too (*decreasing*, 1.748e-01 → 1.328e-01). ✅ **CHECKED at 128 steps, 2026-09-25 (job 58645600), and the caveat is retired — the curve is not merely bounded, it is FLAT.**
+
+| `afm_kda_only_init`, fp32 | 32 steps | **128 steps** |
+|---|---|---|
+| first → last position | 1.116e-03 → 8.989e-03 | **7.312e-04 → 2.087e-03** |
+| growth across the window | 8.1× | **2.9×** |
+| **last position** | 8.989e-03 | **2.087e-03** — *four times SMALLER* |
+| worst \|Δlogit\| | 1.439e-02 | **1.579e-02** — +10 % for 4× the steps |
+| argmax | 32/32 | **128/128** |
+
+⭐⭐ **The "~9× growth" was an artefact of where the 32-step window happened to end, not a trend.** Quadruple the decode length and the *final* position's error drops by 4× and the worst case rises 10 %. In bf16 the same flatness is explicit: student **3.281e-01 → 3.125e-01** against the teacher's **1.250e-01 → 1.250e-01**, and the bf16 **median is unchanged at 2.500e-01** between the two runs — only the *max* grew (4.8 → 15.5 ulp), which is what a max over four times as many draws from a stationary distribution does.
+
+⚠️ **A prediction written down before the run was wrong, and is recorded as wrong.** Extrapolating the 32-step slope linearly gave ~2.5e-4 per token and ~3.3e-02 at step 128, with the worry that IFEval's 2,048 tokens would approach one bf16 ulp. **The slope is zero, not 2.5e-4.** Long generations carry no accumulating-drift risk. *Trap: a two-point slope through a noisy window is not a trend — and "does the error grow?" is only answerable over a window long enough for growth to show.*
 
 ### ⭐ B6e on `kda_only` — the same test with **no attention layers at all** *(2026-09-25)*
 

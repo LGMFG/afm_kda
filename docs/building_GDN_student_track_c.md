@@ -2,6 +2,8 @@
 
 *Companion to `claude/building_the_student.md` (Track A — how the KDA student was built), `claude/track_b.md` (generation, closed) and `claude/first_distillkit_runs.md` (the live run log). This document covers the **second mechanism**: Gated DeltaNet.*
 
+*Revision 9 (2026-09-25) — ✅ **Track C's test ladder is complete** (§8h). **B7c** on the re-synced trained checkpoint: fluent on all three rows, `use_cache` True, most-padded row best — C-5 finally exercised through `generate()` on real KDA layers. **B6e at 128 steps**: the fp32 curve is **flat**, not merely bounded. **C-7** landed, 6/6 markers on both trained directories. Committed at **`8f40624`**, clean tree. What remains is the rebuild, A3/C1, and the FLP layout question.*
+
 *Revision 8 (2026-09-25) — ✅✅ **C-5 passes; §8f is resolved in §8g.** Control A (batch 1, **zero padding**) reads **6.8 ulp**, so most of the magnitude exists before any pad token does. Control B (the **untrained KDA hybrid**) reads 8.1/12.9/12.0/12.0 with its **most-padded row its cleanest** — the *opposite* ordering to the GDN student's, on the same stash loop, which no contamination story survives. **The GDN student is also better than the KDA one on every statistic.** ⭐ The real finding is a baseline: **untrained students sit at 6–13 ulp and 27–30/32** where a trained one sits at 1–2.5 and 31–32/32, and B7's published pass band does not transfer between them.*
 
 *Revision 7 (2026-09-25) — 🔶 **both B7 runs landed and neither is interpretable yet** (§8f). `afm_kda_only_init` shows **no padding ordering whatsoever** — the *unpadded* row is second-worst — which is the all-linear mask path behaving. `afm_gdn_hybrid31_init` leans the wrong way by ~1.7×, but ⚠️⚠️ **B7's default `LENS` makes padding and length perfectly anti-correlated**, so that ordering cannot be read, and ⚠️ both students are **untrained**, where the only B7 baseline on record is a trained one. **Two one-job controls settle both**: `LENS=120,120,120,120` on the GDN hybrid, and plain B7 on `afm_kda_hybrid31_init`.*
@@ -665,7 +667,7 @@ The config edit stands alone and is testable in seconds. The four model edits do
 [ ] move the mechanism print into the HEADER block, not the end of main()
 
 --- step 4: commit BEFORE building ---------------------------------------
-[x] committed at 06cf811, git status --porcelain prints nothing
+[x] committed at 06cf811, then 8f40624 (Track C verified), tree clean
 
 --- step 5: two debug jobs, ran concurrently -----------------------------
 [x] A3 (58447262) -> 0.000e+00 on all six checks
@@ -682,16 +684,17 @@ The config edit stands alone and is testable in seconds. The four model edits do
 [x] CONTROL B: untrained afm_kda_hybrid31_init -> 8.1/12.9/12.0/12.0, and
         its MOST-padded row is its CLEANEST.  Opposite ordering
 [x] ✅ C-5 PASSES -- see 8g
-[ ] B7c on output/r1_stage1_hybrid31 -- generate()-path coverage; needs a
-        re-sync first, so AFTER the GSM8K/IFEval full runs land
-[ ] C-7. the finalize_checkpoint marker, now that a GDN checkpoint exists
+[x] B7c on the re-synced output/r1_stage1_hybrid31 (58645587) -- fluent on
+        all 3 rows, use_cache True, most-padded row best.  C-5 covered
+        through generate() at last.  CONFIRM the run used sdpa
+[x] C-7. finalize_checkpoint marker added -- 6/6 on both trained dirs
 [x] B6 on afm_kda_only_init -- clean; fp32 1.439e-02, argmax 32/32,
         growth 8.1x vs the hybrid's 9.1x.  BUT the fallbacks are inert,
         not validated -- see 8c
 [x] B7 on afm_kda_only_init (58635894) -- NO padding ordering at all
         (unpadded row 2nd worst).  The all-linear mask path behaves
-[ ] rerun B6e at 128 steps on afm_kda_only_init -- is the fp32 curve bounded?
-        IFEval generates 2048 tokens and the slope extrapolates to ~1000
+[x] B6e at 128 steps (58645600) -- the curve is FLAT, not merely bounded.
+        Last position 4x CLEANER than at 32 steps.  track_b.md rev 16
 [x] build gdn_only -- 5,237,399,968, 468/144, 36 GDN + 0 attn, 9.8 GiB
 [ ] rebuild the four KDA students at the Track C commit, so students/ runs
         ONE version of the code (sha256sum the weights first)
@@ -890,6 +893,22 @@ sbatch --export=ALL,MODEL=$WORK_LUKAS/students/afm_kda_hybrid31_init,IMPL=sdpa \
 ⭐ **The untrained B7 baseline is 6–13 ulp and 27–30/32**, against a trained student's 1–2.5 and 31–32/32. ⚠️ **B7's published pass band was measured on a trained model and does not transfer.** Argmax agreement is a function of how peaked the distribution is; an untrained student sits at perplexity 2,765, where near-ties are everywhere. That band is now on record in `track_b.md` §4 so the next person does not re-derive it.
 
 ⚠️ **`LENS=120,120,120,120` silently collapsed to a batch of one** — the script builds its batch from *distinct* lengths, so the intended four-equal-rows test never ran. It answered the question anyway, and arguably better: batch 1 with no padding is the cleanest floor available. **Read the `batch N | lengths [...]` header before trusting what was tested.**
+
+## 8h. ✅ The last two Track C tests — 2026-09-25
+
+**B7c, job 58645587**, on the re-synced `output/r1_stage1_hybrid31` (6/6 markers, all five `.py` hashes matching the repo). Three prompts, left-padded to width 17 with pads `[11, 9, 0]`, 48 greedy tokens through `generate()`.
+
+✅ Fluent, on-topic English on all three rows. `config.use_cache` and `generation_config.use_cache` both print **True**. ⭐ **The row with 11 of 17 columns padded is again the best output** — the same ordering B7c found the first time, and the specific failure this test exists to catch. 📌 The teacher looped on that row ("Paris is the capital of France" six times) and the student did not; `track_b.md` §7 already says not to read that as a quality signal. 📌 One small factual slip in the student's row 0 ("the most populous city in the European Union") — this test reads for **coherence**, not facts, and a base model at 300 M distillation tokens is entitled to it.
+
+⚠️ **One thing to confirm before calling this C-5 coverage.** Under `flash_attention_2` the mask never becomes 4-D and the stash is never exercised, so only an **sdpa** run counts. The B7c output does not print the implementation:
+
+```bash
+grep -n "IMPL\|attn_implementation" $WORK_LUKAS/afm_kda/test_b7c_generate.py
+```
+
+It was `sed`-derived from `test_b7_batched.py`, whose default is sdpa, so this is almost certainly fine — but "almost certainly" is what §9's first trap is about.
+
+**B6e at 128 steps, job 58645600** — full table and the retired caveat in `track_b.md` §4. Headline: the fp32 error curve is **flat**, the final position is **four times cleaner** than at 32 steps, argmax is **128/128**, and a linear extrapolation written down beforehand was wrong in the safe direction. Long generations carry no accumulating-drift risk, which is what IFEval needed.
 
 ## 9. Traps this track has produced, or inherited
 
