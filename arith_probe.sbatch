@@ -19,6 +19,8 @@
 #   sbatch --export=ALL,SET=curve1 arith_probe.sbatch    R5 checkpoints 1-5
 #   sbatch --export=ALL,SET=curve2 arith_probe.sbatch    R5 checkpoints 6-10
 #   sbatch --export=ALL,SET=b1     arith_probe.sbatch    R1 + R5 at batch size 1 (control)
+#   sbatch --export=ALL,SET=custom,MODELS_FILE=/path/list.txt arith_probe.sbatch
+#                                                        any list, one name=path per line (used by queue_evals.sh)
 #
 # Debug QoS runs two at once: submit a + b together, then curve1 + curve2.
 # A job killed at the 30-minute limit is FINISHED by resubmitting the same
@@ -27,7 +29,7 @@
 # SET is read with ${SET:?}, never assigned here, because a plain
 # assignment in the script would silently beat --export.
 # =====================================================================
-: "${SET:?submit with --export=ALL,SET=a|b|curve1|curve2|b1}"
+: "${SET:?submit with --export=ALL,SET=a|b|curve1|curve2|b1|custom}"
 
 source /leonardo/home/userexternal/lrosenbe/distill_env_cu126/bin/activate
 export WORK_LUKAS=/leonardo_work/EUHPC_D34_049/WORK_LUKAS
@@ -73,6 +75,16 @@ case "$SET" in
        "r1_kda_hybrid=$O/r1_stage1_hybrid31/checkpoint-4580"
        "r5_kda_hybrid_1ep=$R5"
      ) ;;
+  custom) # MODELS_FILE = a text file, one "name=path" per line (queue_evals.sh writes it).
+          # A file, not an --export value: Slurm splits --export on commas and the
+          # name=path pairs would have to survive its parser.
+     [ -f "${MODELS_FILE:?SET=custom needs MODELS_FILE}" ] || { echo "FATAL: no file $MODELS_FILE"; exit 1; }
+     mapfile -t MODELS < <(grep -v '^\s*$' "$MODELS_FILE")
+     for m in "${MODELS[@]}"; do
+       # the name becomes the result file name: refuse anything but plain characters
+       # (10-18: terminal escape codes pasted into a list file produced two mis-named results)
+       [[ "${m%%=*}" =~ ^[A-Za-z0-9_.-]+$ ]] || { echo "FATAL: bad model name in $MODELS_FILE: $(printf %q "${m%%=*}")"; exit 1; }
+       [ -d "${m#*=}" ] || { echo "FATAL: missing ${m#*=}"; exit 1; }; done ;;
   *) echo "FATAL: unknown SET=$SET"; exit 1 ;;
 esac
 
